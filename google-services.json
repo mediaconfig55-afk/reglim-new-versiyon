@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "393754770159",
+    "project_id": "reglim-4e244",
+    "storage_bucket": "reglim-4e244.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:393754770159:android:4585ef0db99a9c7d47b91a",
+        "android_client_info": {
+          "package_name": "com.regliyiz.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "393754770159-nn0sbbngl60kdbmcf073vl8cpa6ik4b0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.regliyiz.app",
+            "certificate_hash": "6ac177f57a0a9c9aa3ab811cdd19b92ab489ea45"
+          }
+        },
+        {
+          "client_id": "393754770159-37gitini3bo06i37vk1bjmmaup3qicrt.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA76G_AnCDu1cphfERq7zCgcOKTCO33UtI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "393754770159-37gitini3bo06i37vk1bjmmaup3qicrt.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
