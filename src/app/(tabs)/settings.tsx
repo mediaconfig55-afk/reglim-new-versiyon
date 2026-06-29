@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,15 +12,22 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomAlert } from '../../components/ui/custom-alert';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppStore, PremiumTier } from '../../store/store';
 import { getUnsyncedData, markCycleSynced, markLogSynced, clearDatabase } from '../../database/db';
 import { savePIN, clearPIN } from '../../utils/security';
-import { Shield, Sparkles, CloudRain, ToggleLeft, UserCheck, Key, HelpCircle, UserX, Settings } from 'lucide-react-native';
+import { Shield, Sparkles, CloudRain, ToggleLeft, UserCheck, Key, HelpCircle, UserX, Settings, Bell } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { auth, syncCyclesAndLogsToCloud, restoreCyclesAndLogsFromCloud } from '../../services/firebase';
 import { signOut } from 'firebase/auth';
 import CryptoJS from 'crypto-js';
+import {
+  hasNotificationPermissions,
+  requestNotificationPermissions,
+  scheduleDailyReminders,
+  cancelNotificationById,
+  cancelAllCycleAlerts,
+} from '../../services/notifications';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -71,6 +78,68 @@ export default function SettingsScreen() {
     type: 'info',
     onConfirm: () => {},
   });
+
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+
+  // Check system permission when screen is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      let isMounted = true;
+      async function checkPermission() {
+        const granted = await hasNotificationPermissions();
+        if (isMounted) {
+          setNotificationsEnabled(granted);
+        }
+      }
+      checkPermission();
+      return () => {
+        isMounted = false;
+      };
+    }, [])
+  );
+
+  const handleNotificationsToggle = async (val: boolean) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (val) {
+      const granted = await requestNotificationPermissions();
+      if (granted) {
+        await scheduleDailyReminders();
+        setNotificationsEnabled(true);
+        setAlertConfig({
+          visible: true,
+          title: 'Bildirimler Aktif 🔔',
+          message: 'Günlük su, uyku ve döngü hatırlatıcılarınız başarıyla planlandı.',
+          type: 'success',
+          confirmText: 'Harika',
+          onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+        });
+      } else {
+        setNotificationsEnabled(false);
+        setAlertConfig({
+          visible: true,
+          title: 'İzin Gerekli ⚠️',
+          message: 'Hatırlatıcıları alabilmek için cihaz ayarlarından bu uygulamaya bildirim izni vermelisiniz.',
+          type: 'warning',
+          confirmText: 'Tamam',
+          onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+        });
+      }
+    } else {
+      await cancelNotificationById('daily-water-reminder');
+      await cancelNotificationById('daily-log-reminder');
+      await cancelNotificationById('daily-sleep-reminder');
+      await cancelAllCycleAlerts();
+      setNotificationsEnabled(false);
+      setAlertConfig({
+        visible: true,
+        title: 'Bildirimler Kapatıldı',
+        message: 'Tüm rutin ve döngü hatırlatıcıları devre dışı bırakıldı.',
+        type: 'info',
+        confirmText: 'Tamam',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
+    }
+  };
 
   const handlePregnancyToggle = async (val: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -329,6 +398,29 @@ export default function SettingsScreen() {
               onValueChange={handlePregnancyToggle}
               trackColor={{ false: '#3a3a40', true: '#FF2366' }}
               thumbColor={isPregnancyMode ? '#fff' : '#888'}
+            />
+          </View>
+        </View>
+
+        {/* Bildirimler */}
+        <View style={styles.card}>
+          <View style={styles.settingHeaderRow}>
+            <Bell size={18} color="#FF2366" />
+            <Text style={styles.settingHeaderTitle}>Bildirim Ayarları</Text>
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <Text style={styles.settingLabel}>Rutin Hatırlatıcılar</Text>
+              <Text style={styles.settingDesc}>
+                Günlük su içme, semptom kaydetme, uyku vakti ve yaklaşan regl hatırlatıcılarını alın.
+              </Text>
+            </View>
+            <Switch
+              value={notificationsEnabled}
+              onValueChange={handleNotificationsToggle}
+              trackColor={{ false: '#3a3a40', true: '#FF2366' }}
+              thumbColor={notificationsEnabled ? '#fff' : '#888'}
             />
           </View>
         </View>

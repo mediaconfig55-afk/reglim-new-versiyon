@@ -78,6 +78,7 @@ export async function scheduleCycleAlert(daysUntil: number, dateStr: string) {
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,
           date: targetDate,
+          channelId: 'default',
         },
       });
     }
@@ -109,6 +110,7 @@ export async function scheduleOvulationAlert(dateStr: string) {
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,
           date: targetDate,
+          channelId: 'default',
         },
       });
     }
@@ -141,6 +143,7 @@ export async function scheduleDailyReminders() {
         hour: 14,
         minute: 0,
         repeats: true,
+        channelId: 'default',
       },
     });
 
@@ -157,6 +160,7 @@ export async function scheduleDailyReminders() {
         hour: 20,
         minute: 30,
         repeats: true,
+        channelId: 'default',
       },
     });
 
@@ -173,6 +177,7 @@ export async function scheduleDailyReminders() {
         hour: 22,
         minute: 30,
         repeats: true,
+        channelId: 'default',
       },
     });
 
