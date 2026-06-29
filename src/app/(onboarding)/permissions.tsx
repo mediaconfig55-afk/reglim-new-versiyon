@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BellRing } from 'lucide-react-native';
 import { requestNotificationPermissions, scheduleDailyReminders } from '../../services/notifications';
 
 export default function PermissionsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const handleAllow = async () => {
     setLoading(true);
@@ -39,7 +41,7 @@ export default function PermissionsScreen() {
         </Text>
       </View>
       
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(24, insets.bottom + 12) }]}>
         <TouchableOpacity style={styles.button} onPress={handleAllow} disabled={loading}>
           {loading ? (
             <ActivityIndicator color="#FFF" />

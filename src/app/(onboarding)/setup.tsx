@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, SafeAreaView, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../../store/store';
 import { addCycle, saveDailyLog } from '../../database/db';
+import { addDays } from '../../utils/periodEngine';
 import { User, Calendar as CalendarIcon, Ruler, Weight } from 'lucide-react-native';
 import { getLocalDateString } from '../../utils/date';
+import { CustomAlert } from '../../components/ui/custom-alert';
 
 export default function SetupScreen() {
   const router = useRouter();
   const { user, setUser, setOnboarded } = useAppStore();
+  const insets = useSafeAreaInsets();
 
   const [name, setName] = useState('');
   const [lastPeriod, setLastPeriod] = useState(getLocalDateString());
@@ -18,10 +22,50 @@ export default function SetupScreen() {
   const [height, setHeight] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'error' | 'warning' | 'info' | 'question';
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
+
   const handleFinish = async () => {
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRegex.test(lastPeriod) || isNaN(Date.parse(lastPeriod))) {
-      Alert.alert('Hata', 'Lütfen son regl tarihinizi YYYY-AA-GG formatında giriniz (Örn: 2026-06-15).');
+      setAlertConfig({
+        visible: true,
+        title: 'Hata',
+        message: 'Lütfen son regl tarihinizi YYYY-AA-GG formatında giriniz (Örn: 2026-06-15).',
+        type: 'error',
+      });
+      return;
+    }
+
+    const enteredDate = new Date(lastPeriod + 'T00:00:00Z');
+    const todayUtc = new Date(getLocalDateString() + 'T00:00:00Z');
+    if (enteredDate > todayUtc) {
+      setAlertConfig({
+        visible: true,
+        title: 'Hata',
+        message: 'Son regl tarihi bugünden ileri bir tarih olamaz.',
+        type: 'error',
+      });
+      return;
+    }
+
+    const maxPastMs = 42 * 7 * 24 * 60 * 60 * 1000; // 42 weeks
+    if (todayUtc.getTime() - enteredDate.getTime() > maxPastMs) {
+      setAlertConfig({
+        visible: true,
+        title: 'Hata',
+        message: '42 haftadan önceye ait bir tarih giremezsiniz.',
+        type: 'error',
+      });
       return;
     }
 
@@ -34,7 +78,10 @@ export default function SetupScreen() {
       }
 
       // 2. Add first cycle
-      await addCycle(lastPeriod, undefined, parseInt(cycleLength) || 28, parseInt(periodLength) || 5);
+      const pLen = parseInt(periodLength) || 5;
+      const cLen = parseInt(cycleLength) || 28;
+      const calculatedEndDate = addDays(lastPeriod, pLen - 1);
+      await addCycle(lastPeriod, calculatedEndDate, cLen, pLen);
 
       // 3. Add initial log for weight and height today
       const todayStr = getLocalDateString();
@@ -162,7 +209,7 @@ export default function SetupScreen() {
 
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(24, insets.bottom + 12) }]}>
         <TouchableOpacity 
           style={[styles.button, (!name || !lastPeriod) && styles.buttonDisabled]} 
           onPress={handleFinish}
@@ -175,6 +222,14 @@ export default function SetupScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      <CustomAlert
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        onConfirm={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 }

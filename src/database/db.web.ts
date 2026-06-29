@@ -62,7 +62,6 @@ export async function addCycle(
 ): Promise<boolean> {
   try {
     const cycles = getLocalItem<any[]>(STORAGE_KEYS.CYCLES, []);
-    // Check if start_date already exists to mimic UNIQUE constraint (replace or ignore)
     const existingIndex = cycles.findIndex((c) => c.start_date === startDate);
     
     const newCycle = {
@@ -80,7 +79,23 @@ export async function addCycle(
       cycles.push(newCycle);
     }
 
-    setLocalItem(STORAGE_KEYS.CYCLES, cycles);
+    // Auto calculate cycle lengths for all sorted cycles
+    const sorted = [...cycles].sort((a, b) => a.start_date.localeCompare(b.start_date));
+    for (let i = 0; i < sorted.length; i++) {
+      if (i < sorted.length - 1) {
+        const current = sorted[i];
+        const next = sorted[i + 1];
+        const currentUtc = new Date(current.start_date + 'T12:00:00');
+        const nextUtc = new Date(next.start_date + 'T12:00:00');
+        current.cycle_length = Math.round((nextUtc.getTime() - currentUtc.getTime()) / (1000 * 60 * 60 * 24));
+        current.synced = 0;
+      } else {
+        sorted[i].cycle_length = null;
+        sorted[i].synced = 0;
+      }
+    }
+
+    setLocalItem(STORAGE_KEYS.CYCLES, sorted);
     return true;
   } catch (error) {
     console.error('Failed to add cycle (web):', error);
@@ -109,7 +124,23 @@ export async function updateCycle(
       synced: 0,
     };
 
-    setLocalItem(STORAGE_KEYS.CYCLES, cycles);
+    // Recalculate cycle lengths for all sorted cycles
+    const sorted = [...cycles].sort((a, b) => a.start_date.localeCompare(b.start_date));
+    for (let i = 0; i < sorted.length; i++) {
+      if (i < sorted.length - 1) {
+        const current = sorted[i];
+        const next = sorted[i + 1];
+        const currentUtc = new Date(current.start_date + 'T12:00:00');
+        const nextUtc = new Date(next.start_date + 'T12:00:00');
+        current.cycle_length = Math.round((nextUtc.getTime() - currentUtc.getTime()) / (1000 * 60 * 60 * 24));
+        current.synced = 0;
+      } else {
+        sorted[i].cycle_length = null;
+        sorted[i].synced = 0;
+      }
+    }
+
+    setLocalItem(STORAGE_KEYS.CYCLES, sorted);
     return true;
   } catch (error) {
     console.error('Failed to update cycle (web):', error);
@@ -121,7 +152,24 @@ export async function deleteCycle(id: number): Promise<boolean> {
   try {
     const cycles = getLocalItem<any[]>(STORAGE_KEYS.CYCLES, []);
     const filtered = cycles.filter((c) => c.id !== id);
-    setLocalItem(STORAGE_KEYS.CYCLES, filtered);
+
+    // Recalculate cycle lengths for all sorted cycles
+    const sorted = [...filtered].sort((a, b) => a.start_date.localeCompare(b.start_date));
+    for (let i = 0; i < sorted.length; i++) {
+      if (i < sorted.length - 1) {
+        const current = sorted[i];
+        const next = sorted[i + 1];
+        const currentUtc = new Date(current.start_date + 'T12:00:00');
+        const nextUtc = new Date(next.start_date + 'T12:00:00');
+        current.cycle_length = Math.round((nextUtc.getTime() - currentUtc.getTime()) / (1000 * 60 * 60 * 24));
+        current.synced = 0;
+      } else {
+        sorted[i].cycle_length = null;
+        sorted[i].synced = 0;
+      }
+    }
+
+    setLocalItem(STORAGE_KEYS.CYCLES, sorted);
     return true;
   } catch (error) {
     console.error('Failed to delete cycle (web):', error);
@@ -156,8 +204,8 @@ interface WebDailyLogDB {
   symptoms: string; // JSON
   water_ml: number;
   sleep_hours: number;
-  weight_kg: number;
-  height_cm: number;
+  weight_kg?: number | null;
+  height_cm?: number | null;
   steps: number;
   calories: number;
   systolic_encrypted?: string;
@@ -187,8 +235,8 @@ export async function getDailyLog(date: string): Promise<DailyLogInput | null> {
       symptoms: row.symptoms ? JSON.parse(row.symptoms) : [],
       water_ml: row.water_ml,
       sleep_hours: row.sleep_hours,
-      weight_kg: row.weight_kg || undefined,
-      height_cm: row.height_cm || undefined,
+      weight_kg: row.weight_kg ?? undefined,
+      height_cm: row.height_cm ?? undefined,
       steps: row.steps,
       calories: row.calories,
       systolic: systolicStr ? parseInt(systolicStr) : undefined,
@@ -223,8 +271,8 @@ export async function getDailyLogsRange(startDate: string, endDate: string): Pro
         symptoms: row.symptoms ? JSON.parse(row.symptoms) : [],
         water_ml: row.water_ml,
         sleep_hours: row.sleep_hours,
-        weight_kg: row.weight_kg || undefined,
-        height_cm: row.height_cm || undefined,
+        weight_kg: row.weight_kg ?? undefined,
+        height_cm: row.height_cm ?? undefined,
         steps: row.steps,
         calories: row.calories,
         systolic: systolicStr ? parseInt(systolicStr) : undefined,
@@ -260,12 +308,12 @@ export async function saveDailyLog(log: DailyLogInput): Promise<boolean> {
       date: log.date,
       moods: moodsStr,
       symptoms: symptomsStr,
-      water_ml: log.water_ml || 0,
-      sleep_hours: log.sleep_hours || 0,
-      weight_kg: log.weight_kg || 0,
-      height_cm: log.height_cm || 0,
-      steps: log.steps || 0,
-      calories: log.calories || 0,
+      water_ml: log.water_ml ?? 0,
+      sleep_hours: log.sleep_hours ?? 0,
+      weight_kg: log.weight_kg ?? null,
+      height_cm: log.height_cm ?? null,
+      steps: log.steps ?? 0,
+      calories: log.calories ?? 0,
       systolic_encrypted,
       diastolic_encrypted,
       pulse_encrypted,
@@ -351,6 +399,55 @@ export async function deactivatePregnancy(): Promise<boolean> {
 }
 
 // ==========================================
+// ACTIVE CYCLE HELPERS (web)
+// ==========================================
+
+/**
+ * Returns the currently open cycle (no end_date) or null.
+ */
+export async function getActiveCycle(): Promise<any | null> {
+  try {
+    const cycles = getLocalItem<any[]>(STORAGE_KEYS.CYCLES, []);
+    const open = cycles
+      .filter((c) => !c.end_date)
+      .sort((a, b) => (a.start_date > b.start_date ? -1 : 1));
+    return open.length > 0 ? open[0] : null;
+  } catch (error) {
+    console.error('Failed to get active cycle (web):', error);
+    return null;
+  }
+}
+
+/**
+ * Closes an open cycle – sets end_date and period_length (inclusive).
+ */
+export async function endCycle(
+  id: number,
+  endDate: string,
+  startDate: string
+): Promise<boolean> {
+  try {
+    const cycles = getLocalItem<any[]>(STORAGE_KEYS.CYCLES, []);
+    const idx = cycles.findIndex((c) => c.id === id);
+    if (idx === -1) return false;
+
+    const startUtc = new Date(startDate + 'T00:00:00Z');
+    const endUtc   = new Date(endDate   + 'T00:00:00Z');
+    const periodLength = Math.max(
+      1,
+      Math.round((endUtc.getTime() - startUtc.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    );
+
+    cycles[idx] = { ...cycles[idx], end_date: endDate, period_length: periodLength, synced: 0 };
+    setLocalItem(STORAGE_KEYS.CYCLES, cycles);
+    return true;
+  } catch (error) {
+    console.error('Failed to end cycle (web):', error);
+    return false;
+  }
+}
+
+// ==========================================
 // ONLINE SYNCING UTILITIES
 // ==========================================
 
@@ -387,5 +484,65 @@ export async function markLogSynced(date: string): Promise<void> {
     }
   } catch (error) {
     console.error('Failed to mark log synced (web):', error);
+  }
+}
+
+export async function clearDatabase(): Promise<boolean> {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(STORAGE_KEYS.CYCLES);
+      window.localStorage.removeItem(STORAGE_KEYS.DAILY_LOGS);
+      window.localStorage.removeItem(STORAGE_KEYS.CUSTOM_SYMPTOMS);
+      window.localStorage.removeItem(STORAGE_KEYS.PREGNANCY);
+    }
+    console.log('Web localStorage database wiped successfully.');
+    return true;
+  } catch (error) {
+    console.error('Failed to clear web database:', error);
+    return false;
+  }
+}
+
+export async function restoreDataInLocalDB(cycles: any[], logs: any[]): Promise<boolean> {
+  try {
+    const webCycles = cycles.map(c => ({
+      id: c.id,
+      start_date: c.start_date,
+      end_date: c.end_date || null,
+      cycle_length: c.cycle_length || null,
+      period_length: c.period_length || null,
+      synced: 1
+    }));
+
+    const webLogs: Record<string, any> = {};
+    for (const l of logs) {
+      const moodsStr = JSON.stringify(l.moods || []);
+      const symptomsStr = JSON.stringify(l.symptoms || []);
+      webLogs[l.date] = {
+        date: l.date,
+        moods: moodsStr,
+        symptoms: symptomsStr,
+        water_ml: l.water_ml ?? 0,
+        sleep_hours: l.sleep_hours ?? 0,
+        weight_kg: l.weight_kg ?? null,
+        height_cm: l.height_cm ?? null,
+        steps: l.steps ?? 0,
+        calories: l.calories ?? 0,
+        systolic_encrypted: l.systolic_encrypted ?? null,
+        diastolic_encrypted: l.diastolic_encrypted ?? null,
+        pulse_encrypted: l.pulse_encrypted ?? null,
+        blood_sugar_encrypted: l.blood_sugar_encrypted ?? null,
+        notes_encrypted: l.notes_encrypted ?? null,
+        synced: 1
+      };
+    }
+
+    setLocalItem(STORAGE_KEYS.CYCLES, webCycles);
+    setLocalItem(STORAGE_KEYS.DAILY_LOGS, webLogs);
+    console.log('Restored cloud data to Web localStorage successfully.');
+    return true;
+  } catch (error) {
+    console.error('Failed to restore data in web local database:', error);
+    return false;
   }
 }

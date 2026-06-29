@@ -6,36 +6,50 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { getDailyLog, saveDailyLog, DailyLogInput } from '../../database/db';
 import { Activity, Heart, Droplet, Moon, Scale, Sparkles, MessageSquare, Save } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { getLocalDateString } from '../../utils/date';
+import { CustomAlert } from '../../components/ui/custom-alert';
 
 export default function HealthTrackerScreen() {
   const todayStr = getLocalDateString();
+  const insets = useSafeAreaInsets();
 
   const [log, setLog] = useState<DailyLogInput>({
     date: todayStr,
     water_ml: 0,
     sleep_hours: 0,
-    weight_kg: 58.0,
-    height_cm: 165.0,
+    weight_kg: undefined,
+    height_cm: undefined,
     steps: 0,
     calories: 0,
-    systolic: 120,
-    diastolic: 80,
-    pulse: 72,
-    blood_sugar: 90,
+    systolic: undefined,
+    diastolic: undefined,
+    pulse: undefined,
+    blood_sugar: undefined,
     notes: '',
   });
 
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'error' | 'warning' | 'info' | 'question';
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+  });
 
   const loadTodayData = async () => {
     try {
@@ -43,12 +57,12 @@ export default function HealthTrackerScreen() {
       if (todayLog) {
         setLog({
           ...todayLog,
-          weight_kg: todayLog.weight_kg || 58.0,
-          height_cm: todayLog.height_cm || 165.0,
-          systolic: todayLog.systolic || 120,
-          diastolic: todayLog.diastolic || 80,
-          pulse: todayLog.pulse || 72,
-          blood_sugar: todayLog.blood_sugar || 90,
+          weight_kg: todayLog.weight_kg ?? undefined,
+          height_cm: todayLog.height_cm ?? undefined,
+          systolic: todayLog.systolic ?? undefined,
+          diastolic: todayLog.diastolic ?? undefined,
+          pulse: todayLog.pulse ?? undefined,
+          blood_sugar: todayLog.blood_sugar ?? undefined,
         });
       }
     } catch (e) {
@@ -80,6 +94,58 @@ export default function HealthTrackerScreen() {
     setSaving(true);
     setSuccessMsg('');
 
+    const showError = (msg: string) => {
+      setAlertConfig({
+        visible: true,
+        title: 'Hata',
+        message: msg,
+        type: 'error',
+      });
+      setSaving(false);
+    };
+
+    // Bounds Validation checks
+    if (log.weight_kg !== undefined && (log.weight_kg < 20 || log.weight_kg > 300)) {
+      showError('Kilo değeri 20 ile 300 kg arasında olmalıdır.');
+      return;
+    }
+    if (log.height_cm !== undefined && (log.height_cm < 50 || log.height_cm > 250)) {
+      showError('Boy değeri 50 ile 250 cm arasında olmalıdır.');
+      return;
+    }
+    if (log.water_ml !== undefined && (log.water_ml < 0 || log.water_ml > 10000)) {
+      showError('Su miktarı 0 ile 10000 ml arasında olmalıdır.');
+      return;
+    }
+    if (log.sleep_hours !== undefined && (log.sleep_hours < 0 || log.sleep_hours > 24)) {
+      showError('Uyku süresi 0 ile 24 saat arasında olmalıdır.');
+      return;
+    }
+    if (log.steps !== undefined && (log.steps < 0 || log.steps > 100000)) {
+      showError('Adım sayısı 0 ile 100.000 arasında olmalıdır.');
+      return;
+    }
+    if (log.calories !== undefined && (log.calories < 0 || log.calories > 10000)) {
+      showError('Kalori değeri 0 ile 10.000 kcal arasında olmalıdır.');
+      return;
+    }
+    if (log.systolic !== undefined && (log.systolic < 40 || log.systolic > 250)) {
+      showError('Büyük tansiyon 40 ile 250 mmHg arasında olmalıdır.');
+      return;
+    }
+    if (log.diastolic !== undefined && (log.diastolic < 30 || log.diastolic > 150)) {
+      showError('Küçük tansiyon 30 ile 150 mmHg arasında olmalıdır.');
+      return;
+    }
+    if (log.pulse !== undefined && (log.pulse < 30 || log.pulse > 220)) {
+      showError('Nabız 30 ile 220 bpm arasında olmalıdır.');
+      return;
+    }
+    if (log.blood_sugar !== undefined && (log.blood_sugar < 10 || log.blood_sugar > 600)) {
+      showError('Açlık kan şekeri 10 ile 600 mg/dL arasında olmalıdır.');
+      return;
+    }
+
     try {
       await saveDailyLog(log);
       setSuccessMsg('Göstergeler başarıyla kaydedildi! 🌟');
@@ -102,8 +168,10 @@ export default function HealthTrackerScreen() {
     }));
   };
 
-  const bmi = parseFloat(calculateBMI());
-  const bmiCat = getBMICategory(bmi);
+  const bmiStr = calculateBMI();
+  const bmi = parseFloat(bmiStr);
+  const isBmiValid = bmi > 0;
+  const bmiCat = isBmiValid ? getBMICategory(bmi) : { text: 'Veri Yok', color: '#888' };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -137,9 +205,15 @@ export default function HealthTrackerScreen() {
                 <Text style={styles.inputLabel}>Kilo (kg)</Text>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="58.0"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.weight_kg || '')}
-                  onChangeText={(val) => updateField('weight_kg', val ? parseFloat(val) : 0)}
+                  value={log.weight_kg !== undefined ? String(log.weight_kg) : ''}
+                  onChangeText={(val) => {
+                    const cleaned = val.replace(',', '.').trim();
+                    const parsed = parseFloat(cleaned);
+                    updateField('weight_kg', isNaN(parsed) ? undefined : parsed);
+                  }}
                 />
               </View>
               
@@ -147,9 +221,15 @@ export default function HealthTrackerScreen() {
                 <Text style={styles.inputLabel}>Boy (cm)</Text>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="165"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.height_cm || '')}
-                  onChangeText={(val) => updateField('height_cm', val ? parseFloat(val) : 0)}
+                  value={log.height_cm !== undefined ? String(log.height_cm) : ''}
+                  onChangeText={(val) => {
+                    const cleaned = val.replace(',', '.').trim();
+                    const parsed = parseFloat(cleaned);
+                    updateField('height_cm', isNaN(parsed) ? undefined : parsed);
+                  }}
                 />
               </View>
             </View>
@@ -157,7 +237,7 @@ export default function HealthTrackerScreen() {
             <View style={styles.bmiResultRow}>
               <Text style={styles.bmiLabel}>BMI Skorunuz:</Text>
               <View style={styles.bmiBadgeRow}>
-                <Text style={styles.bmiScore}>{bmi}</Text>
+                <Text style={styles.bmiScore}>{isBmiValid ? bmiStr : '-'}</Text>
                 <View style={[styles.bmiCatBadge, { backgroundColor: bmiCat.color + '20', borderColor: bmiCat.color }]}>
                   <Text style={[styles.bmiCatText, { color: bmiCat.color }]}>{bmiCat.text}</Text>
                 </View>
@@ -180,9 +260,14 @@ export default function HealthTrackerScreen() {
                 </View>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.water_ml || '')}
-                  onChangeText={(val) => updateField('water_ml', val ? parseInt(val) : 0)}
+                  value={log.water_ml !== undefined ? String(log.water_ml) : ''}
+                  onChangeText={(val) => {
+                    const parsed = parseInt(val.trim(), 10);
+                    updateField('water_ml', isNaN(parsed) ? 0 : parsed);
+                  }}
                 />
               </View>
               
@@ -193,9 +278,15 @@ export default function HealthTrackerScreen() {
                 </View>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="0.0"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.sleep_hours || '')}
-                  onChangeText={(val) => updateField('sleep_hours', val ? parseFloat(val) : 0)}
+                  value={log.sleep_hours !== undefined ? String(log.sleep_hours) : ''}
+                  onChangeText={(val) => {
+                    const cleaned = val.replace(',', '.').trim();
+                    const parsed = parseFloat(cleaned);
+                    updateField('sleep_hours', isNaN(parsed) ? 0 : parsed);
+                  }}
                 />
               </View>
             </View>
@@ -213,9 +304,14 @@ export default function HealthTrackerScreen() {
                 <Text style={styles.inputLabel}>Adım Sayısı</Text>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.steps || '')}
-                  onChangeText={(val) => updateField('steps', val ? parseInt(val) : 0)}
+                  value={log.steps !== undefined ? String(log.steps) : ''}
+                  onChangeText={(val) => {
+                    const parsed = parseInt(val.trim(), 10);
+                    updateField('steps', isNaN(parsed) ? 0 : parsed);
+                  }}
                 />
               </View>
               
@@ -223,9 +319,14 @@ export default function HealthTrackerScreen() {
                 <Text style={styles.inputLabel}>Alınan Kalori (kcal)</Text>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.calories || '')}
-                  onChangeText={(val) => updateField('calories', val ? parseInt(val) : 0)}
+                  value={log.calories !== undefined ? String(log.calories) : ''}
+                  onChangeText={(val) => {
+                    const parsed = parseInt(val.trim(), 10);
+                    updateField('calories', isNaN(parsed) ? 0 : parsed);
+                  }}
                 />
               </View>
             </View>
@@ -247,18 +348,28 @@ export default function HealthTrackerScreen() {
                 <Text style={styles.inputLabel}>Büyük Tansiyon (Sys)</Text>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="120"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.systolic || '')}
-                  onChangeText={(val) => updateField('systolic', val ? parseInt(val) : 0)}
+                  value={log.systolic !== undefined ? String(log.systolic) : ''}
+                  onChangeText={(val) => {
+                    const parsed = parseInt(val.trim(), 10);
+                    updateField('systolic', isNaN(parsed) ? undefined : parsed);
+                  }}
                 />
               </View>
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Küçük Tansiyon (Dia)</Text>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="80"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.diastolic || '')}
-                  onChangeText={(val) => updateField('diastolic', val ? parseInt(val) : 0)}
+                  value={log.diastolic !== undefined ? String(log.diastolic) : ''}
+                  onChangeText={(val) => {
+                    const parsed = parseInt(val.trim(), 10);
+                    updateField('diastolic', isNaN(parsed) ? undefined : parsed);
+                  }}
                 />
               </View>
             </View>
@@ -268,9 +379,14 @@ export default function HealthTrackerScreen() {
                 <Text style={styles.inputLabel}>Nabız (bpm)</Text>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="72"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.pulse || '')}
-                  onChangeText={(val) => updateField('pulse', val ? parseInt(val) : 0)}
+                  value={log.pulse !== undefined ? String(log.pulse) : ''}
+                  onChangeText={(val) => {
+                    const parsed = parseInt(val.trim(), 10);
+                    updateField('pulse', isNaN(parsed) ? undefined : parsed);
+                  }}
                 />
               </View>
               
@@ -278,9 +394,15 @@ export default function HealthTrackerScreen() {
                 <Text style={styles.inputLabel}>Açlık Kan Şekeri (mg/dL)</Text>
                 <TextInput
                   keyboardType="numeric"
+                  placeholder="90"
+                  placeholderTextColor="#444"
                   style={styles.numericInput}
-                  value={String(log.blood_sugar || '')}
-                  onChangeText={(val) => updateField('blood_sugar', val ? parseFloat(val) : 0)}
+                  value={log.blood_sugar !== undefined ? String(log.blood_sugar) : ''}
+                  onChangeText={(val) => {
+                    const cleaned = val.replace(',', '.').trim();
+                    const parsed = parseFloat(cleaned);
+                    updateField('blood_sugar', isNaN(parsed) ? undefined : parsed);
+                  }}
                 />
               </View>
             </View>
@@ -315,9 +437,17 @@ export default function HealthTrackerScreen() {
           </TouchableOpacity>
 
           {/* Padding for bottom tab bar */}
-          <View style={{ height: 140 }} />
+          <View style={{ height: Math.max(140, insets.bottom + 90) }} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <CustomAlert
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        onConfirm={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+      />
     </SafeAreaView>
   );
 }

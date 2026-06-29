@@ -7,22 +7,24 @@ import {
   Switch,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
-  Alert,
   Modal,
   TextInput,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CustomAlert } from '../../components/ui/custom-alert';
 import { useRouter } from 'expo-router';
 import { useAppStore, PremiumTier } from '../../store/store';
-import { getUnsyncedData, markCycleSynced, markLogSynced } from '../../database/db';
+import { getUnsyncedData, markCycleSynced, markLogSynced, clearDatabase } from '../../database/db';
 import { savePIN, clearPIN } from '../../utils/security';
 import { Shield, Sparkles, CloudRain, ToggleLeft, UserCheck, Key, HelpCircle, UserX, Settings } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { auth, syncCyclesAndLogsToCloud } from '../../services/firebase';
+import { auth, syncCyclesAndLogsToCloud, restoreCyclesAndLogsFromCloud } from '../../services/firebase';
 import { signOut } from 'firebase/auth';
+import CryptoJS from 'crypto-js';
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   
   const {
     user,
@@ -53,15 +55,38 @@ export default function SettingsScreen() {
   const [adminModalVisible, setAdminModalVisible] = useState(false);
   const [adminPasscode, setAdminPasscode] = useState('');
 
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    type: 'success' | 'error' | 'warning' | 'info' | 'question';
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info',
+    onConfirm: () => {},
+  });
+
   const handlePregnancyToggle = async (val: boolean) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setPregnancyMode(val);
     if (val) {
-      Alert.alert(
-        'Gebelik Modu Aktif 👶',
-        'Uygulama gebelik takibi moduna geçirildi. Ana sayfada bebek gelişimini görebilirsiniz.',
-        [{ text: 'Tamam', onPress: () => router.push('/pregnancy') }]
-      );
+      setAlertConfig({
+        visible: true,
+        title: 'Gebelik Modu Aktif 👶',
+        message: 'Uygulama gebelik takibi moduna geçirildi. Ana sayfada bebek gelişimini görebilirsiniz.',
+        type: 'success',
+        confirmText: 'Tamam',
+        onConfirm: () => {
+          setAlertConfig(prev => ({ ...prev, visible: false }));
+          router.push('/pregnancy');
+        }
+      });
     }
   };
 
@@ -72,7 +97,13 @@ export default function SettingsScreen() {
     } else {
       await clearPIN();
       setSecurityConfig(false, false);
-      Alert.alert('PIN Kodu Kaldırıldı', 'Şifre koruması devre dışı bırakıldı.', [{ text: 'Tamam' }]);
+      setAlertConfig({
+        visible: true,
+        title: 'PIN Kodu Kaldırıldı',
+        message: 'Şifre koruması devre dışı bırakıldı.',
+        type: 'info',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
     }
   };
 
@@ -84,7 +115,13 @@ export default function SettingsScreen() {
   const handleSyncData = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (!user?.uid) {
-      Alert.alert('Giriş Yapılmadı', 'Bulut senkronizasyonu için lütfen önce giriş yapın.');
+      setAlertConfig({
+        visible: true,
+        title: 'Giriş Yapılmadı',
+        message: 'Bulut senkronizasyonu için lütfen önce giriş yapın.',
+        type: 'warning',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
       return;
     }
 
@@ -103,17 +140,86 @@ export default function SettingsScreen() {
         setLastSyncTime(dateStr);
         setSyncStatus('success');
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Senkronizasyon Başarılı', 'Yerel verileriniz Firebase bulut sunucularına yedeklendi.', [{ text: 'Harika' }]);
+        setAlertConfig({
+          visible: true,
+          title: 'Senkronizasyon Başarılı',
+          message: 'Yerel verileriniz Firebase bulut sunucularına yedeklendi.',
+          type: 'success',
+          confirmText: 'Harika',
+          onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+        });
       } else {
         throw new Error('Sync failed');
       }
     } catch (e) {
       setSyncStatus('error');
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Hata', 'Bulut senkronizasyonu sırasında bir hata oluştu. Lütfen bağlantınızı kontrol edin.');
+      setAlertConfig({
+        visible: true,
+        title: 'Hata',
+        message: 'Bulut senkronizasyonu sırasında bir hata oluştu. Lütfen bağlantınızı kontrol edin.',
+        type: 'error',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
     } finally {
       setSyncing(false);
     }
+  };
+
+  const [restoring, setRestoring] = useState(false);
+
+  const handleRestoreData = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!user?.uid) {
+      setAlertConfig({
+        visible: true,
+        title: 'Giriş Yapılmadı',
+        message: 'Verileri buluttan geri yüklemek için lütfen önce giriş yapın.',
+        type: 'warning',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
+      return;
+    }
+
+    setAlertConfig({
+      visible: true,
+      title: '📥 Verileri Geri Yükle',
+      message: 'Buluttaki yedeklerinizi indirmek istiyor musunuz? Cihazınızdaki mevcut yerel veriler silinip üzerine yazılacaktır.',
+      type: 'question',
+      confirmText: 'Evet, Yükle',
+      cancelText: 'İptal',
+      onCancel: () => setAlertConfig(prev => ({ ...prev, visible: false })),
+      onConfirm: async () => {
+        setAlertConfig(prev => ({ ...prev, visible: false }));
+        setRestoring(true);
+        try {
+          const success = await restoreCyclesAndLogsFromCloud(user.uid);
+          if (success) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            setAlertConfig({
+              visible: true,
+              title: 'Başarılı',
+              message: 'Döngü ve sağlık verileriniz buluttan başarıyla geri yüklendi.',
+              type: 'success',
+              onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+            });
+          } else {
+            throw new Error('Restore failed');
+          }
+        } catch (e) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setAlertConfig({
+            visible: true,
+            title: 'Hata',
+            message: 'Geri yükleme sırasında bir sorun oluştu. Bulutta yedeğiniz olmayabilir.',
+            type: 'error',
+            onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+          });
+        } finally {
+          setRestoring(false);
+        }
+      }
+    });
   };
 
   const handlePurchaseMock = (tier: PremiumTier) => {
@@ -125,36 +231,39 @@ export default function SettingsScreen() {
       setPremium(tier);
       setBillingLoading(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert(
-        'Abonelik Başarılı 🌟',
-        `Tebrikler! ${tier === 'premium' ? 'Premium' : 'Premium Plus'} paketiniz başarıyla tanımlandı.`,
-        [{ text: 'Kullanmaya Başla' }]
-      );
+      setAlertConfig({
+        visible: true,
+        title: 'Abonelik Başarılı 🌟',
+        message: `Tebrikler! ${tier === 'premium' ? 'Premium' : 'Premium Plus'} paketiniz başarıyla tanımlandı.`,
+        type: 'success',
+        confirmText: 'Kullanmaya Başla',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
     }, 1200);
   };
 
   const handleLogout = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    Alert.alert(
-      'Çıkış Yap',
-      'Hesabınızdan çıkış yapmak istediğinize emin misiniz?',
-      [
-        { text: 'İptal', style: 'cancel' },
-        {
-          text: 'Çıkış Yap',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await signOut(auth);
-            } catch (err) {
-              console.error('Firebase signout error:', err);
-            }
-            await logout();
-            router.replace('/(auth)/login');
-          },
-        },
-      ]
-    );
+    setAlertConfig({
+      visible: true,
+      title: 'Çıkış Yap',
+      message: 'Hesabınızdan çıkış yapmak istediğinize emin misiniz?',
+      type: 'question',
+      confirmText: 'Çıkış Yap',
+      cancelText: 'İptal',
+      onCancel: () => setAlertConfig(prev => ({ ...prev, visible: false })),
+      onConfirm: async () => {
+        setAlertConfig(prev => ({ ...prev, visible: false }));
+        try {
+          await signOut(auth);
+        } catch (err) {
+          console.error('Firebase signout error:', err);
+        }
+        await clearDatabase();
+        await logout();
+        router.replace('/(auth)/login');
+      }
+    });
   };
 
   return (
@@ -283,24 +392,37 @@ export default function SettingsScreen() {
             <Text style={styles.settingHeaderTitle}>Yedekleme & Eşitleme</Text>
           </View>
 
-          <View style={styles.syncContainer}>
-            <View style={{ flex: 1 }}>
+          <View style={[styles.syncContainer, { flexDirection: 'column', alignItems: 'stretch' }]}>
+            <View style={{ marginBottom: 12 }}>
               <Text style={styles.syncLabel}>Bulut Senkronizasyonu</Text>
               <Text style={styles.syncDesc}>
                 Son yedekleme: {lastSyncTime || 'Yedek Alınmadı'}
               </Text>
             </View>
-            <TouchableOpacity
-              onPress={handleSyncData}
-              style={styles.syncBtn}
-              disabled={syncing}
-            >
-              {syncing ? (
-                <ActivityIndicator color="#FF2366" size="small" />
-              ) : (
-                <Text style={styles.syncBtnText}>Şimdi Eşitle</Text>
-              )}
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                onPress={handleSyncData}
+                style={[styles.syncBtn, { flex: 1, alignItems: 'center' }]}
+                disabled={syncing || restoring}
+              >
+                {syncing ? (
+                  <ActivityIndicator color="#FF2366" size="small" />
+                ) : (
+                  <Text style={styles.syncBtnText}>Şimdi Eşitle</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleRestoreData}
+                style={[styles.syncBtn, { flex: 1, alignItems: 'center', borderColor: '#9B5DE5' }]}
+                disabled={syncing || restoring}
+              >
+                {restoring ? (
+                  <ActivityIndicator color="#9B5DE5" size="small" />
+                ) : (
+                  <Text style={[styles.syncBtnText, { color: '#9B5DE5' }]}>Buluttan Yükle</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -370,7 +492,7 @@ export default function SettingsScreen() {
         </TouchableOpacity>
 
         {/* Padding for bottom tab bar */}
-        <View style={{ height: 120 }} />
+        <View style={{ height: Math.max(120, insets.bottom + 80) }} />
       </ScrollView>
 
       {/* PIN Setup Modal */}
@@ -427,11 +549,23 @@ export default function SettingsScreen() {
                 onPress={async () => {
                   const numRegex = /^\d{4}$/;
                   if (!numRegex.test(newPinInput)) {
-                    Alert.alert('Hata', 'Girdiğiniz PIN kodu tam olarak 4 haneli bir sayı olmalıdır.');
+                    setAlertConfig({
+                      visible: true,
+                      title: 'Hata',
+                      message: 'Girdiğiniz PIN kodu tam olarak 4 haneli bir sayı olmalıdır.',
+                      type: 'error',
+                      onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+                    });
                     return;
                   }
                   if (newPinInput !== confirmPinInput) {
-                    Alert.alert('Hata', 'Girdiğiniz PIN kodları birbiriyle uyuşmuyor.');
+                    setAlertConfig({
+                      visible: true,
+                      title: 'Hata',
+                      message: 'Girdiğiniz PIN kodları birbiriyle uyuşmuyor.',
+                      type: 'error',
+                      onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+                    });
                     return;
                   }
                   
@@ -441,7 +575,13 @@ export default function SettingsScreen() {
                   setNewPinInput('');
                   setConfirmPinInput('');
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  Alert.alert('Başarılı', 'Giriş şifreniz başarıyla aktif edildi ve kaydedildi.');
+                  setAlertConfig({
+                    visible: true,
+                    title: 'Başarılı',
+                    message: 'Giriş şifreniz başarıyla aktif edildi ve kaydedildi.',
+                    type: 'success',
+                    onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+                  });
                 }}
               >
                 <Text style={styles.pinModalBtnText}>Kaydet</Text>
@@ -479,12 +619,19 @@ export default function SettingsScreen() {
               <TouchableOpacity
                 style={[styles.adminModalBtn, { backgroundColor: '#FF2366' }]}
                 onPress={() => {
-                  if (adminPasscode === 'patron') {
+                  const hashedInput = CryptoJS.SHA256(adminPasscode).toString();
+                  if (hashedInput === '6e753a6b0a37cd1032c991ba167cee596db9adca33162ea9e48a0ba86c4daed3') {
                     setAdminModalVisible(false);
                     setAdminPasscode('');
                     router.push('/admin');
                   } else {
-                    Alert.alert('Erişim Reddedildi', 'Hatalı yönetici şifresi.');
+                    setAlertConfig({
+                      visible: true,
+                      title: 'Erişim Reddedildi',
+                      message: 'Hatalı yönetici şifresi.',
+                      type: 'error',
+                      onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+                    });
                     setAdminPasscode('');
                   }
                 }}
@@ -495,6 +642,17 @@ export default function SettingsScreen() {
           </View>
         </View>
       </Modal>
+
+      <CustomAlert
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        confirmText={alertConfig.confirmText}
+        cancelText={alertConfig.cancelText}
+        onConfirm={alertConfig.onConfirm}
+        onCancel={alertConfig.onCancel}
+      />
     </SafeAreaView>
   );
 }

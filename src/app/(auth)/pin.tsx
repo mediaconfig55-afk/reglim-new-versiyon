@@ -4,9 +4,9 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
   Animated,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../../store/store';
 import { authenticateWithBiometrics, verifyPIN } from '../../utils/security';
@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 export default function PinScreen() {
   const router = useRouter();
   const { biometricsEnabled } = useAppStore();
+  const insets = useSafeAreaInsets();
   const [pin, setPin] = useState('');
   const maxPinLength = 4;
   const shakeAnimation = useState(new Animated.Value(0))[0];
@@ -115,7 +116,7 @@ export default function PinScreen() {
         </Animated.View>
 
         {/* Keyboard Layout */}
-        <View style={styles.keyboard}>
+        <View style={[styles.keyboard, { marginBottom: Math.max(20, insets.bottom + 10) }]}>
           <View style={styles.row}>
             <TouchableOpacity onPress={() => handleKeyPress('1')} style={styles.key}><Text style={styles.keyText}>1</Text></TouchableOpacity>
             <TouchableOpacity onPress={() => handleKeyPress('2')} style={styles.key}><Text style={styles.keyText}>2</Text></TouchableOpacity>

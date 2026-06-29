@@ -16,6 +16,26 @@ jest.mock('expo-secure-store', () => {
   };
 });
 
+// Mock AsyncStorage to work in pure node/jest environment
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const store: { [key: string]: string } = {};
+  return {
+    getItem: jest.fn((key: string) => Promise.resolve(store[key] || null)),
+    setItem: jest.fn((key: string, val: string) => {
+      store[key] = val;
+      return Promise.resolve();
+    }),
+    removeItem: jest.fn((key: string) => {
+      delete store[key];
+      return Promise.resolve();
+    }),
+    clear: jest.fn(() => {
+      Object.keys(store).forEach(key => delete store[key]);
+      return Promise.resolve();
+    }),
+  };
+});
+
 describe('Security & Encryption Tests', () => {
   test('should successfully encrypt and decrypt a sensitive medical note', async () => {
     const rawNote = 'Bugün çok şiddetli kramplarım oldu ve tansiyonum düştü.';

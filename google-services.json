@@ -14,11 +14,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "393754770159-nn0sbbngl60kdbmcf073vl8cpa6ik4b0.apps.googleusercontent.com",
+          "client_id": "393754770159-j88lg8v9r6mp2ubrfcpvp9o158i7pt8q.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.regliyiz.app",
-            "certificate_hash": "6ac177f57a0a9c9aa3ab811cdd19b92ab489ea45"
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
           }
         },
         {

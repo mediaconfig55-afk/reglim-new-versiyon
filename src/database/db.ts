@@ -4,7 +4,10 @@ import { encryptText, decryptText } from '../utils/security';
 // Open the database synchronously
 let db: SQLite.SQLiteDatabase;
 
+let dbInitialized = false;
+
 export function initDatabase() {
+  if (dbInitialized) return; // Prevent double-init on hot-reload
   try {
     db = SQLite.openDatabaseSync('reglim_takvim.db');
 
@@ -60,9 +63,12 @@ export function initDatabase() {
       );
     `);
 
+    dbInitialized = true;
     console.log('Local SQLite database initialized successfully.');
   } catch (error) {
-    console.error('Failed to initialize database:', error);
+    console.error('FATAL: Failed to initialize database:', error);
+    // Re-throw so the app can show an error state instead of silently failing
+    throw error;
   }
 }
 
@@ -81,11 +87,45 @@ export async function getCycles(): Promise<any[]> {
 
 export async function addCycle(startDate: string, endDate?: string, cycleLength?: number, periodLength?: number): Promise<boolean> {
   try {
+    // 1. Insert the new cycle
     await db.runAsync(
       `INSERT OR REPLACE INTO cycles (start_date, end_date, cycle_length, period_length, synced) 
        VALUES (?, ?, ?, ?, 0)`,
       [startDate, endDate || null, cycleLength || null, periodLength || null]
     );
+
+    // 2. Automatically calculate and update cycle_length for the previous cycle (if any)
+    const prevCycle = await db.getFirstAsync<any>(
+      'SELECT * FROM cycles WHERE start_date < ? ORDER BY start_date DESC LIMIT 1',
+      [startDate]
+    );
+    if (prevCycle) {
+      const startUtc = new Date(prevCycle.start_date + 'T12:00:00');
+      const nextUtc = new Date(startDate + 'T12:00:00');
+      const calculatedLength = Math.round((nextUtc.getTime() - startUtc.getTime()) / (1000 * 60 * 60 * 24));
+      
+      await db.runAsync(
+        'UPDATE cycles SET cycle_length = ?, synced = 0 WHERE id = ?',
+        [calculatedLength, prevCycle.id]
+      );
+    }
+
+    // 3. Automatically calculate and update cycle_length for the new cycle (if a next cycle exists)
+    const nextCycle = await db.getFirstAsync<any>(
+      'SELECT * FROM cycles WHERE start_date > ? ORDER BY start_date ASC LIMIT 1',
+      [startDate]
+    );
+    if (nextCycle) {
+      const startUtc = new Date(startDate + 'T12:00:00');
+      const nextUtc = new Date(nextCycle.start_date + 'T12:00:00');
+      const calculatedLength = Math.round((nextUtc.getTime() - startUtc.getTime()) / (1000 * 60 * 60 * 24));
+      
+      await db.runAsync(
+        'UPDATE cycles SET cycle_length = ?, synced = 0 WHERE start_date = ?',
+        [calculatedLength, startDate]
+      );
+    }
+
     return true;
   } catch (error) {
     console.error('Failed to add cycle:', error);
@@ -99,6 +139,25 @@ export async function updateCycle(id: number, startDate: string, endDate?: strin
       `UPDATE cycles SET start_date = ?, end_date = ?, cycle_length = ?, period_length = ?, synced = 0 WHERE id = ?`,
       [startDate, endDate || null, cycleLength || null, periodLength || null, id]
     );
+
+    // Recalculate cycle lengths for all cycles after update
+    const allCycles = await db.getAllAsync<any>('SELECT * FROM cycles ORDER BY start_date ASC');
+    for (let i = 0; i < allCycles.length; i++) {
+      let calculatedLength: number | null = null;
+      if (i < allCycles.length - 1) {
+        const startUtc = new Date(allCycles[i].start_date + 'T12:00:00');
+        const nextUtc = new Date(allCycles[i + 1].start_date + 'T12:00:00');
+        calculatedLength = Math.round((nextUtc.getTime() - startUtc.getTime()) / (1000 * 60 * 60 * 24));
+      }
+      
+      if (allCycles[i].cycle_length !== calculatedLength) {
+        await db.runAsync(
+          'UPDATE cycles SET cycle_length = ?, synced = 0 WHERE id = ?',
+          [calculatedLength, allCycles[i].id]
+        );
+      }
+    }
+
     return true;
   } catch (error) {
     console.error('Failed to update cycle:', error);
@@ -108,7 +167,39 @@ export async function updateCycle(id: number, startDate: string, endDate?: strin
 
 export async function deleteCycle(id: number): Promise<boolean> {
   try {
+    // Get start_date of cycle before deleting
+    const target = await db.getFirstAsync<any>('SELECT start_date FROM cycles WHERE id = ?', [id]);
+    
     await db.runAsync('DELETE FROM cycles WHERE id = ?', [id]);
+
+    if (target) {
+      const prevCycle = await db.getFirstAsync<any>(
+        'SELECT * FROM cycles WHERE start_date < ? ORDER BY start_date DESC LIMIT 1',
+        [target.start_date]
+      );
+      const nextCycle = await db.getFirstAsync<any>(
+        'SELECT * FROM cycles WHERE start_date > ? ORDER BY start_date ASC LIMIT 1',
+        [target.start_date]
+      );
+
+      if (prevCycle) {
+        if (nextCycle) {
+          const startUtc = new Date(prevCycle.start_date + 'T12:00:00');
+          const nextUtc = new Date(nextCycle.start_date + 'T12:00:00');
+          const calculatedLength = Math.round((nextUtc.getTime() - startUtc.getTime()) / (1000 * 60 * 60 * 24));
+          await db.runAsync(
+            'UPDATE cycles SET cycle_length = ?, synced = 0 WHERE id = ?',
+            [calculatedLength, prevCycle.id]
+          );
+        } else {
+          await db.runAsync(
+            'UPDATE cycles SET cycle_length = NULL, synced = 0 WHERE id = ?',
+            [prevCycle.id]
+          );
+        }
+      }
+    }
+
     return true;
   } catch (error) {
     console.error('Failed to delete cycle:', error);
@@ -250,12 +341,12 @@ export async function saveDailyLog(log: DailyLogInput): Promise<boolean> {
         log.date,
         moodsStr,
         symptomsStr,
-        log.water_ml || 0,
-        log.sleep_hours || 0,
-        log.weight_kg || null,
-        log.height_cm || null,
-        log.steps || 0,
-        log.calories || 0,
+        log.water_ml ?? 0,
+        log.sleep_hours ?? 0,
+        log.weight_kg ?? null,
+        log.height_cm ?? null,
+        log.steps ?? 0,
+        log.calories ?? 0,
         systolic_encrypted,
         diastolic_encrypted,
         pulse_encrypted,
@@ -332,6 +423,49 @@ export async function deactivatePregnancy(): Promise<boolean> {
 }
 
 // ==========================================
+// ACTIVE CYCLE HELPERS
+// ==========================================
+
+/**
+ * Returns the currently open cycle (no end_date) or null.
+ * Used to detect if a period is in progress.
+ */
+export async function getActiveCycle(): Promise<any | null> {
+  try {
+    const row = await db.getFirstAsync(
+      'SELECT * FROM cycles WHERE end_date IS NULL ORDER BY start_date DESC LIMIT 1'
+    );
+    return row || null;
+  } catch (error) {
+    console.error('Failed to get active cycle:', error);
+    return null;
+  }
+}
+
+/**
+ * Closes an open cycle by setting its end_date and calculating period length.
+ * Period length is inclusive (start and end day both count).
+ */
+export async function endCycle(id: number, endDate: string, startDate: string): Promise<boolean> {
+  try {
+    const startUtc = new Date(startDate + 'T00:00:00Z');
+    const endUtc   = new Date(endDate   + 'T00:00:00Z');
+    const periodLength = Math.max(
+      1,
+      Math.round((endUtc.getTime() - startUtc.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    );
+    await db.runAsync(
+      'UPDATE cycles SET end_date = ?, period_length = ?, synced = 0 WHERE id = ?',
+      [endDate, periodLength, id]
+    );
+    return true;
+  } catch (error) {
+    console.error('Failed to end cycle:', error);
+    return false;
+  }
+}
+
+// ==========================================
 // ONLINE SYNCING UTILITIES
 // ==========================================
 
@@ -359,5 +493,69 @@ export async function markLogSynced(date: string): Promise<void> {
     await db.runAsync('UPDATE daily_logs SET synced = 1 WHERE date = ?', [date]);
   } catch (error) {
     console.error('Failed to mark log synced:', error);
+  }
+}
+
+export async function clearDatabase(): Promise<boolean> {
+  try {
+    await db.runAsync('DELETE FROM cycles;');
+    await db.runAsync('DELETE FROM daily_logs;');
+    await db.runAsync('DELETE FROM custom_symptoms;');
+    await db.runAsync('DELETE FROM pregnancy_data;');
+    console.log('Local SQLite database wiped successfully.');
+    return true;
+  } catch (error) {
+    console.error('Failed to clear local SQLite database:', error);
+    return false;
+  }
+}
+
+export async function restoreDataInLocalDB(cycles: any[], logs: any[]): Promise<boolean> {
+  try {
+    // 1. Wipe previous local data to prevent duplications or constraint violations
+    await db.runAsync('DELETE FROM cycles;');
+    await db.runAsync('DELETE FROM daily_logs;');
+
+    // 2. Populate cycles
+    for (const c of cycles) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO cycles (id, start_date, end_date, cycle_length, period_length, synced) 
+         VALUES (?, ?, ?, ?, ?, 1)`,
+        [c.id, c.start_date, c.end_date || null, c.cycle_length || null, c.period_length || null]
+      );
+    }
+
+    // 3. Populate daily logs (with decrypted storage and moods/symptoms stringification)
+    for (const l of logs) {
+      const moodsStr = JSON.stringify(l.moods || []);
+      const symptomsStr = JSON.stringify(l.symptoms || []);
+      await db.runAsync(
+        `INSERT OR REPLACE INTO daily_logs (
+          date, moods, symptoms, water_ml, sleep_hours, weight_kg, height_cm, steps, calories, 
+          systolic_encrypted, diastolic_encrypted, pulse_encrypted, blood_sugar_encrypted, notes_encrypted, synced
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [
+          l.date,
+          moodsStr,
+          symptomsStr,
+          l.water_ml ?? 0,
+          l.sleep_hours ?? 0,
+          l.weight_kg ?? null,
+          l.height_cm ?? null,
+          l.steps ?? 0,
+          l.calories ?? 0,
+          l.systolic_encrypted ?? null,
+          l.diastolic_encrypted ?? null,
+          l.pulse_encrypted ?? null,
+          l.blood_sugar_encrypted ?? null,
+          l.notes_encrypted ?? null,
+        ]
+      );
+    }
+    console.log('Restored cloud data to local SQLite database successfully.');
+    return true;
+  } catch (error) {
+    console.error('Failed to restore data in local SQLite database:', error);
+    return false;
   }
 }

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Check, ShieldCheck } from 'lucide-react-native';
 
 export default function TermsScreen() {
   const router = useRouter();
   const [accepted, setAccepted] = useState(false);
+  const insets = useSafeAreaInsets();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -24,7 +26,7 @@ export default function TermsScreen() {
         </Text>
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(24, insets.bottom + 12) }]}>
         <TouchableOpacity 
           style={styles.checkboxContainer} 
           onPress={() => setAccepted(!accepted)}

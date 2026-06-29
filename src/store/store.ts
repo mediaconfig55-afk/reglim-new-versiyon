@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import { clearPIN } from '../utils/security';
 
 export type PremiumTier = 'free' | 'premium' | 'premium_plus';
 export type ThemeMode = 'light' | 'dark' | 'system';
@@ -29,12 +30,12 @@ interface AppState {
   
   // Actions
   setUser: (user: UserProfile | null) => void;
-  setPremium: (tier: PremiumTier) => void;
-  setPregnancyMode: (active: boolean) => void;
-  setThemeMode: (mode: ThemeMode) => void;
+  setPremium: (tier: PremiumTier) => Promise<void>;
+  setPregnancyMode: (active: boolean) => Promise<void>;
+  setThemeMode: (mode: ThemeMode) => Promise<void>;
   setSyncStatus: (status: SyncStatus) => void;
-  setLastSyncTime: (time: string | null) => void;
-  setSecurityConfig: (pinEnabled: boolean, biometricsEnabled: boolean) => void;
+  setLastSyncTime: (time: string | null) => Promise<void>;
+  setSecurityConfig: (pinEnabled: boolean, biometricsEnabled: boolean) => Promise<void>;
   setOnboarded: (isOnboarded: boolean) => Promise<void>;
   setSessionUnlocked: (unlocked: boolean) => void;
   logout: () => Promise<void>;
@@ -121,11 +122,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   logout: async () => {
-    set({ user: null, isAuthenticated: false });
+    set({
+      user: null,
+      isAuthenticated: false,
+      isPremium: false,
+      premiumTier: 'free',
+      isPregnancyMode: false,
+      lastSyncTime: null,
+      pinEnabled: false,
+      biometricsEnabled: false,
+      isOnboarded: false,
+      sessionUnlocked: false,
+    });
     try {
-      await AsyncStorage.removeItem('user_session');
+      await AsyncStorage.multiRemove([
+        'user_session',
+        'premium_tier',
+        'pregnancy_mode',
+        'last_sync_time',
+        'pin_enabled',
+        'biometrics_enabled',
+        'is_onboarded',
+      ]);
+      await clearPIN();
     } catch (e) {
-      console.error('Failed to clear user session storage:', e);
+      console.error('Failed to clear user storage and PIN on logout:', e);
     }
   },
 

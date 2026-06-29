@@ -146,7 +146,7 @@ export function calculatePredictions(cycles: Cycle[], todayStr: string = getLoca
       const prevCycle = futureCycles[i - 1];
       const nextStart = addDays(prevCycle.startDate, avgCycle);
       const nextEnd = addDays(nextStart, avgPeriod - 1);
-      const nextOv = addDays(nextStart, -14); // 14 days before next period
+      const nextOv = addDays(nextStart, avgCycle - 14); // 14 days before next period (start + avgCycle - 14)
       const fertileS = addDays(nextOv, -5);
       const fertileE = addDays(nextOv, 1);
 
@@ -160,7 +160,7 @@ export function calculatePredictions(cycles: Cycle[], todayStr: string = getLoca
     } else {
       // Initial prediction
       const nextEnd = addDays(predStart, avgPeriod - 1);
-      const nextOv = addDays(predStart, -14);
+      const nextOv = addDays(predStart, avgCycle - 14); // 14 days before next period (start + avgCycle - 14)
       const fertileS = addDays(nextOv, -5);
       const fertileE = addDays(nextOv, 1);
 

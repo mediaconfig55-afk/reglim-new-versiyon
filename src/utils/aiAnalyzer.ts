@@ -1,5 +1,5 @@
 import { DailyLogInput } from '../database/db';
-import { Cycle } from './periodEngine';
+import { Cycle, addDays } from './periodEngine';
 
 export interface AIInsight {
   title: string;
@@ -33,8 +33,8 @@ export function generateAIInsights(logs: DailyLogInput[], cycles: Cycle[]): AIIn
   }
 
   // 1. Cycle regularity analysis
-  if (cycles.length >= 3) {
-    const cycleLengths = cycles.filter(c => c.cycle_length !== null).map(c => c.cycle_length as number);
+  const cycleLengths = cycles.filter(c => c.cycle_length !== null).map(c => c.cycle_length as number);
+  if (cycleLengths.length >= 3) {
     const mean = cycleLengths.reduce((s, v) => s + v, 0) / cycleLengths.length;
     const dev = Math.sqrt(cycleLengths.reduce((s, v) => s + Math.pow(v - mean, 2), 0) / cycleLengths.length);
 
@@ -96,9 +96,7 @@ export function generateAIInsights(logs: DailyLogInput[], cycles: Cycle[]): AIIn
       analyzedPeriods++;
       // Check logs 3 days before start_date
       for (let offset = -3; offset < 0; offset++) {
-        const checkDate = new Date(c.start_date);
-        checkDate.setDate(checkDate.getDate() + offset);
-        const dateStr = checkDate.toISOString().split('T')[0];
+        const dateStr = addDays(c.start_date, offset);
         const log = logs.find(l => l.date === dateStr);
         if (log && log.symptoms) {
           log.symptoms.forEach(s => {

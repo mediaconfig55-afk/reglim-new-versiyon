@@ -1,19 +1,37 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAppStore } from '../store/store';
 import { initDatabase } from '../database/db';
-import { requestNotificationPermissions, scheduleDailyReminders } from '../services/notifications';
-import { View, ActivityIndicator, StyleSheet, AppState, AppStateStatus } from 'react-native';
+import { requestNotificationPermissions, scheduleDailyReminders, hasNotificationPermissions } from '../services/notifications';
+import {
+  View,
+  StyleSheet,
+  AppState,
+  AppStateStatus,
+  Image,
+  Animated,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import * as SplashScreen from 'expo-splash-screen';
+
+// Keep the native splash visible until we explicitly hide it
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const queryClient = new QueryClient();
 
+// ── Session helper functions ──
+export function unlockSession() {
+  useAppStore.getState().setSessionUnlocked(true);
+}
 
+export function lockSession() {
+  useAppStore.getState().setSessionUnlocked(false);
+}
 
 export default function RootLayout() {
   return (
@@ -27,36 +45,75 @@ export default function RootLayout() {
 
 function AppContent() {
   const [dbReady, setDbReady] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+  const [splashOpacity] = useState(() => new Animated.Value(1));
+
   const router = useRouter();
   const segments = useSegments();
-  const { loadPersistedState, isAuthenticated, pinEnabled, isOnboarded, sessionUnlocked, setSessionUnlocked } = useAppStore();
+  const {
+    loadPersistedState,
+    isAuthenticated,
+    pinEnabled,
+    isOnboarded,
+    sessionUnlocked,
+  } = useAppStore();
 
-  // 1. Initialize DB and configuration on launch
+  // 1. Initialize DB + settings, then fade out the in-app splash
   useEffect(() => {
     async function prepare() {
       try {
-        // Initialize SQLite DB tables
-        initDatabase();
-        
-        // Load settings from AsyncStorage to Zustand
+        initDatabase(); // now throws on failure
+      } catch (dbError) {
+        console.error('FATAL: Database could not be initialized. App may not function correctly.', dbError);
+        // Continue loading so user can at least see an error or auth screen
+      }
+
+      try {
         await loadPersistedState();
-        
-        // Request notifications permission and set schedule
-        const granted = await requestNotificationPermissions();
-        if (granted) {
-          await scheduleDailyReminders();
-        }
       } catch (e) {
         console.error('Failed to initialize app core:', e);
       } finally {
         setDbReady(true);
+
+        // Hide the native splash first
+        await SplashScreen.hideAsync().catch(() => {});
+
+        // Then smoothly fade out our in-app lotus splash
+        Animated.timing(splashOpacity, {
+          toValue: 0,
+          duration: 800,
+          useNativeDriver: true,
+        }).start(() => setShowSplash(false));
       }
     }
 
     prepare();
   }, []);
 
-  // 2. Listen to Firebase auth changes to keep Zustand and AsyncStorage in sync
+  // 1.5. Silently check and schedule notification reminders after load (no native prompt on startup)
+  useEffect(() => {
+    if (!dbReady || showSplash) return;
+
+    async function initNotifications() {
+      try {
+        const granted = await hasNotificationPermissions();
+        if (granted) {
+          await scheduleDailyReminders();
+        }
+      } catch (e) {
+        console.error('Failed to setup notifications after load:', e);
+      }
+    }
+
+    // Delay slightly to let navigation/animation settle
+    const timer = setTimeout(() => {
+      initNotifications();
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [dbReady, showSplash]);
+
+  // 2. Keep Firebase auth + Zustand in sync
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       const { setUser } = useAppStore.getState();
@@ -64,7 +121,9 @@ function AppContent() {
         const sessionUser = {
           uid: fbUser.uid,
           email: fbUser.email,
-          displayName: fbUser.displayName || (fbUser.isAnonymous ? 'Misafir Kullanıcı' : 'Kayıtlı Kullanıcı'),
+          displayName:
+            fbUser.displayName ||
+            (fbUser.isAnonymous ? 'Misafir Kullanıcı' : 'Kayıtlı Kullanıcı'),
           isAnonymous: fbUser.isAnonymous,
         };
         await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
@@ -78,57 +137,40 @@ function AppContent() {
     return () => unsubscribe();
   }, []);
 
-  // 3. Navigation Guards and lock screen flow
+  // 3. Navigation guards
   useEffect(() => {
     if (!dbReady) return;
 
-    const segs = segments as string[];
-    const inAuthGroup = segs[0] === '(auth)';
-    const inOnboardingGroup = segs[0] === '(onboarding)';
+    const seg0 = (segments as string[])[0] ?? '';
+    const seg1 = (segments as string[])[1] ?? '';
+    const inAuthGroup = seg0 === '(auth)';
+    const inOnboardingGroup = seg0 === '(onboarding)';
 
     if (!isAuthenticated) {
-      // If user is not logged in, redirect to login
-      if (!inAuthGroup) {
-        router.replace('/(auth)/login');
-      }
+      if (!inAuthGroup) router.replace('/(auth)/login');
     } else if (!isOnboarded) {
-      // If not onboarded, redirect to onboarding flow
-      if (!inOnboardingGroup) {
-        router.replace('/(onboarding)/intro');
-      }
+      if (!inOnboardingGroup) router.replace('/(onboarding)/intro');
     } else if (pinEnabled && !sessionUnlocked) {
-      // If PIN is enabled and session is locked, redirect to PIN screen
-      if (segs[1] !== 'pin') {
-        router.replace('/(auth)/pin');
-      }
+      if (seg1 !== 'pin') router.replace('/(auth)/pin');
     } else {
-      // If logged in, onboarded, and unlocked (or PIN not enabled), redirect to dashboard
-      if (inAuthGroup || inOnboardingGroup || segs.length === 0) {
+      if (inAuthGroup || inOnboardingGroup || seg0 === '') {
         router.replace('/(tabs)');
       }
     }
   }, [dbReady, isAuthenticated, pinEnabled, isOnboarded, sessionUnlocked, segments]);
 
-  // 4. App State Listener for security lock on backgrounding
+  // 4. Lock session when app goes to background
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        lockSession();
+    const subscription = AppState.addEventListener(
+      'change',
+      (nextAppState: AppStateStatus) => {
+        if (nextAppState === 'background') {
+          lockSession();
+        }
       }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
-  if (!dbReady) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF2366" />
-      </View>
     );
-  }
+    return () => subscription.remove();
+  }, []);
 
   return (
     <>
@@ -140,33 +182,39 @@ function AppContent() {
           animation: 'fade_from_bottom',
         }}
       >
-        <Stack.Screen name="(auth)/login" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="(auth)/pin" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="(onboarding)" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
-        <Stack.Screen name="pregnancy/index" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="log-day" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-        <Stack.Screen name="admin/index" options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="(auth)/login"      options={{ gestureEnabled: false }} />
+        <Stack.Screen name="(auth)/pin"        options={{ gestureEnabled: false }} />
+        <Stack.Screen name="(onboarding)"      options={{ gestureEnabled: false }} />
+        <Stack.Screen name="(tabs)"            options={{ gestureEnabled: false }} />
+        <Stack.Screen name="pregnancy/index"   options={{ animation: 'slide_from_right' }} />
+        <Stack.Screen name="log-day"           options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="admin/index"       options={{ animation: 'slide_from_right' }} />
       </Stack>
+
+      {/* ── Full-screen lotus splash overlay ── */}
+      {showSplash && (
+        <Animated.View
+          style={[StyleSheet.absoluteFill, { opacity: splashOpacity }]}
+          pointerEvents="none"
+        >
+          <Image
+            source={require('../../assets/images/splash-icon.png')}
+            style={styles.splashImage}
+            resizeMode="contain"
+          />
+        </Animated.View>
+      )}
     </>
   );
 }
 
-// Global unlock helper to unlock PIN lock for this session
-export function unlockSession() {
-  useAppStore.getState().setSessionUnlocked(true);
-}
 
-// Global lock helper to lock PIN lock
-export function lockSession() {
-  useAppStore.getState().setSessionUnlocked(false);
-}
 
 const styles = StyleSheet.create({
-  loadingContainer: {
+  splashImage: {
     flex: 1,
-    backgroundColor: '#121214',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
   },
 });

@@ -6,20 +6,21 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useAppStore } from '../../store/store';
 import { getCycles, getDailyLogsRange, DailyLogInput } from '../../database/db';
 import { calculatePredictions, Cycle } from '../../utils/periodEngine';
 import { generateDoctorReport } from '../../utils/pdfGenerator';
-import { Svg, Rect, Line, Circle, Polyline, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { Svg, Rect, Line, Circle, Polyline, Path, Defs, LinearGradient, Stop, Text as SvgText } from 'react-native-svg';
 import { BarChart3, FileDown, Activity, Sparkles, TrendingUp, Info } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { getLocalDateString } from '../../utils/date';
 
 export default function StatisticsScreen() {
   const { user } = useAppStore();
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [cycles, setCycles] = useState<Cycle[]>([]);
@@ -131,17 +132,27 @@ export default function StatisticsScreen() {
                   fill="url(#barGrad)"
                 />
                 {/* Value Label */}
-                <Text
-                  style={[styles.chartTextVal, { left: x + (barWidth / 2) - 10, top: y - 18 }]}
+                <SvgText
+                  x={x + (barWidth / 2)}
+                  y={y - 8}
+                  fill="#fff"
+                  fontSize="11"
+                  fontWeight="bold"
+                  textAnchor="middle"
                 >
                   {val}
-                </Text>
+                </SvgText>
                 {/* Date Label */}
-                <Text
-                  style={[styles.chartTextLabel, { left: x - 4, top: chartHeight - 20, width: barWidth + 8 }]}
+                <SvgText
+                  x={x + (barWidth / 2)}
+                  y={chartHeight - 6}
+                  fill="#555"
+                  fontSize="10"
+                  fontWeight="600"
+                  textAnchor="middle"
                 >
-                  {new Date(c.start_date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
-                </Text>
+                  {new Date(c.start_date + 'T12:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
+                </SvgText>
               </React.Fragment>
             );
           })}
@@ -204,12 +215,26 @@ export default function StatisticsScreen() {
           {points.map((p, idx) => (
             <React.Fragment key={idx}>
               <Circle cx={p.x} cy={p.y} r="5" fill="#18181c" stroke="#06D6A0" strokeWidth="2" />
-              <Text style={[styles.chartTextVal, { left: p.x - 12, top: p.y - 18, color: '#06D6A0', fontSize: 10 }]}>
+              <SvgText
+                x={p.x}
+                y={p.y - 8}
+                fill="#06D6A0"
+                fontSize="10"
+                fontWeight="bold"
+                textAnchor="middle"
+              >
                 {p.val?.toFixed(1)}
-              </Text>
-              <Text style={[styles.chartTextLabel, { left: p.x - 14, top: chartHeight - 20, fontSize: 8 }]}>
-                {new Date(p.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
-              </Text>
+              </SvgText>
+              <SvgText
+                x={p.x}
+                y={chartHeight - 6}
+                fill="#555"
+                fontSize="8"
+                fontWeight="600"
+                textAnchor="middle"
+              >
+                {new Date(p.date + 'T12:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}
+              </SvgText>
             </React.Fragment>
           ))}
         </Svg>
@@ -355,7 +380,7 @@ export default function StatisticsScreen() {
         </View>
 
         {/* Padding for bottom tab bar */}
-        <View style={{ height: 100 }} />
+        <View style={{ height: Math.max(100, insets.bottom + 60) }} />
       </ScrollView>
     </SafeAreaView>
   );

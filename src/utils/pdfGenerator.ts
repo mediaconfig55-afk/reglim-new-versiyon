@@ -67,8 +67,8 @@ export async function generateDoctorReport(data: ReportData): Promise<boolean> {
       return `
         <tr>
           <td>${idx + 1}</td>
-          <td>${new Date(c.start_date).toLocaleDateString('tr-TR')}</td>
-          <td>${c.end_date ? new Date(c.end_date).toLocaleDateString('tr-TR') : 'Devam Ediyor'}</td>
+          <td>${new Date(c.start_date + 'T12:00:00').toLocaleDateString('tr-TR')}</td>
+          <td>${c.end_date ? new Date(c.end_date + 'T12:00:00').toLocaleDateString('tr-TR') : 'Devam Ediyor'}</td>
           <td>${c.cycle_length ? `${c.cycle_length} Gün` : '-'}</td>
           <td>${c.period_length ? `${c.period_length} Gün` : '-'}</td>
         </tr>

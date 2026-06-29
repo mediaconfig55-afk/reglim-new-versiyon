@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,14 +9,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Modal,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../../store/store';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Heart, Mail, Lock, User, Sparkles } from 'lucide-react-native';
+import { Heart, Mail, Lock, User, Sparkles, Check } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -25,14 +27,7 @@ import {
   signInAnonymously, 
   updateProfile 
 } from 'firebase/auth';
-import { auth } from '../../services/firebase';
-
-if (Platform.OS !== 'web') {
-  GoogleSignin.configure({
-    webClientId: '393754770159-37gitini3bo06i37vk1bjmmaup3qicrt.apps.googleusercontent.com',
-    offlineAccess: true,
-  });
-}
+import { auth, restoreCyclesAndLogsFromCloud } from '../../services/firebase';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -44,6 +39,29 @@ export default function LoginScreen() {
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successUserName, setSuccessUserName] = useState('');
+  const [pendingSessionUser, setPendingSessionUser] = useState<any>(null);
+
+  const handleSuccessModalClose = () => {
+    setShowSuccessModal(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (pendingSessionUser) {
+      setUser(pendingSessionUser);
+    } else {
+      router.replace('/(tabs)');
+    }
+  };
+
+  // Configure Google Sign-In once on mount (native only)
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      GoogleSignin.configure({
+        webClientId: '393754770159-37gitini3bo06i37vk1bjmmaup3qicrt.apps.googleusercontent.com',
+        offlineAccess: false,
+      });
+    }
+  }, []);
 
   const handleAuthenticate = async () => {
     if (!email || !password || (!isLogin && !name)) {
@@ -73,6 +91,10 @@ export default function LoginScreen() {
         isAnonymous: false,
       };
 
+      if (isLogin) {
+        await restoreCyclesAndLogsFromCloud(fbUser.uid);
+      }
+
       await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
       setUser(sessionUser);
 
@@ -98,35 +120,90 @@ export default function LoginScreen() {
   };
 
   const handleGoogleSignIn = async () => {
+    if (Platform.OS === 'web') return;
     setLoading(true);
     setError('');
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     try {
-      await GoogleSignin.hasPlayServices();
+      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const response = await GoogleSignin.signIn();
-      const idToken = response.data?.idToken;
-      if (!idToken) {
-        throw new Error('Google Sign-In failed: No ID Token found');
+
+      let user = null;
+      let isCancelled = false;
+
+      if (response && typeof response === 'object') {
+        if ('type' in response) {
+          // New v16+ response structure
+          if (response.type === 'success') {
+            user = response.data;
+          } else if (response.type === 'cancelled') {
+            isCancelled = true;
+          }
+        } else {
+          // Legacy pre-v16 response structure (response is directly the user object)
+          user = response as any;
+        }
       }
+
+      if (isCancelled) {
+        setError('');
+        setLoading(false);
+        return;
+      }
+
+      if (!user) {
+        throw new Error('Google Sign-In başarısız: Kullanıcı verisi alınamadı.');
+      }
+
+      const idToken = user.idToken;
+
+      if (!idToken) {
+        throw new Error(
+          'Google Sign-In başarısız: ID Token alınamadı.\n' +
+          'Google Cloud/Firebase Console\'da OAuth Web Client ID yapılandırmasını kontrol edin.'
+        );
+      }
+
       const credential = GoogleAuthProvider.credential(idToken);
       const userCredential = await signInWithCredential(auth, credential);
-      const user = userCredential.user;
-      
+      const fbUser = userCredential.user;
+
       const sessionUser = {
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName || 'Google Kullanıcısı',
+        uid: fbUser.uid,
+        email: fbUser.email,
+        displayName: fbUser.displayName || 'Google Kullanıcısı',
         isAnonymous: false,
       };
-      
+
+      await restoreCyclesAndLogsFromCloud(fbUser.uid);
       await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
-      setUser(sessionUser);
+      // Save user session in pending state and show modal first (do NOT call setUser yet)
+      setPendingSessionUser(sessionUser);
+      setSuccessUserName(sessionUser.displayName);
+      setShowSuccessModal(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace('/(tabs)');
     } catch (e: any) {
-      console.error('Google Sign-In error:', e);
-      setError('Google ile giriş yapılırken hata oluştu.');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      console.error('Google Sign-In error:', e?.code, e?.message);
+      if (e.code === statusCodes.SIGN_IN_CANCELLED) {
+        // Kullanıcı iptal etti – sessizce geç
+        setError('');
+      } else if (e.code === statusCodes.IN_PROGRESS) {
+        setError('Giriş işlemi devam ediyor, lütfen bekleyin.');
+      } else if (e.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setError('Google Play Hizmetleri kullanılamıyor. Lütfen güncelleyin.');
+      } else {
+        // Show specific help for Developer Error 10 (mismatched/missing SHA-1 fingerprint)
+        let message = 'Google ile giriş yapılırken hata oluştu. Lütfen tekrar deneyin.';
+        if (e.code === '10' || e.code === 'DEVELOPER_ERROR') {
+          message = 'Google Sign-In Geliştirici Hatası (Hata Kodu: 10).\n' +
+                    'Bu hata genellikle uygulamanın SHA-1 parmak izi ile Firebase Console\'daki SHA-1 kaydının eşleşmemesinden kaynaklanır.\n' +
+                    'Lütfen hem debug (yerel test) hem de release (canlı/eas) SHA-1 parmak izlerinizin Firebase\'e eklendiğinden emin olun.';
+        } else if (e.message && (e.message.includes('ID Token') || e.message.includes('Web Client ID'))) {
+          message = e.message;
+        }
+        setError(message);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
     } finally {
       setLoading(false);
     }
@@ -291,6 +368,48 @@ export default function LoginScreen() {
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Success Modal */}
+      <Modal
+        visible={showSuccessModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleSuccessModalClose}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <LinearGradient
+              colors={['#2c1622', '#181216']}
+              style={styles.modalGradient}
+            >
+              {/* Success Checkmark with Glowing Ring */}
+              <View style={styles.successIconWrapper}>
+                <View style={styles.successIconOuterRing}>
+                  <View style={styles.successIconInnerRing}>
+                    <Check size={36} color="#fff" strokeWidth={3} />
+                  </View>
+                </View>
+              </View>
+
+              {/* Title & Description */}
+              <Text style={styles.modalTitle}>Giriş Başarılı!</Text>
+              <Text style={styles.modalMessage}>
+                Hoş geldin, <Text style={styles.modalUserHighlight}>{successUserName || 'Google Kullanıcısı'}</Text>!{'\n'}
+                Sağlık asistanın ve döngü takvimin senin için hazırlandı.
+              </Text>
+
+              {/* Action Button */}
+              <TouchableOpacity
+                onPress={handleSuccessModalClose}
+                style={styles.modalButton}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalButtonText}>Hemen Başla</Text>
+              </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
     </LinearGradient>
   );
 }
@@ -461,5 +580,92 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 24,
     lineHeight: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 28,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 35, 102, 0.25)',
+    shadowColor: '#FF2366',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 15,
+  },
+  modalGradient: {
+    paddingVertical: 36,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  successIconWrapper: {
+    marginBottom: 20,
+  },
+  successIconOuterRing: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: 'rgba(255, 35, 102, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  successIconInnerRing: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: '#FF2366',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FF2366',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 14,
+    color: '#ccc',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 28,
+  },
+  modalUserHighlight: {
+    color: '#FF2366',
+    fontWeight: 'bold',
+  },
+  modalButton: {
+    width: '100%',
+    height: 50,
+    backgroundColor: '#FF2366',
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FF2366',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
 });

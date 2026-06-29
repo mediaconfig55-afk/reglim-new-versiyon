@@ -13,6 +13,15 @@ Notifications.setNotificationHandler({
 });
 
 /**
+ * Check if notification permissions are already granted (without prompting)
+ */
+export async function hasNotificationPermissions(): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+  const { status } = await Notifications.getPermissionsAsync();
+  return status === 'granted';
+}
+
+/**
  * Request notification permissions
  */
 export async function requestNotificationPermissions(): Promise<boolean> {
@@ -53,7 +62,7 @@ export async function scheduleCycleAlert(daysUntil: number, dateStr: string) {
     await cancelNotificationById(`cycle-alert-${dateStr}`);
     
     // Set notification target date (2 days before)
-    const targetDate = new Date(dateStr);
+    const targetDate = new Date(dateStr.includes('T') ? dateStr : `${dateStr}T12:00:00`);
     targetDate.setDate(targetDate.getDate() - daysUntil);
     targetDate.setHours(9, 0, 0, 0); // 9:00 AM
 
@@ -85,7 +94,7 @@ export async function scheduleOvulationAlert(dateStr: string) {
   try {
     await cancelNotificationById(`ovulation-alert-${dateStr}`);
 
-    const targetDate = new Date(dateStr);
+    const targetDate = new Date(dateStr.includes('T') ? dateStr : `${dateStr}T12:00:00`);
     targetDate.setHours(9, 0, 0, 0); // 9:00 AM
 
     const now = new Date();
@@ -114,8 +123,10 @@ export async function scheduleOvulationAlert(dateStr: string) {
 export async function scheduleDailyReminders() {
   if (Platform.OS === 'web') return;
   try {
-    // Cancel first to prevent duplicates
-    await Notifications.cancelAllScheduledNotificationsAsync();
+    // Cancel first to prevent duplicates (only daily reminders, keeping cycle and ovulation alerts intact)
+    await cancelNotificationById('daily-water-reminder');
+    await cancelNotificationById('daily-log-reminder');
+    await cancelNotificationById('daily-sleep-reminder');
 
     // 1. Water Intake Reminder (Daily at 14:00)
     await Notifications.scheduleNotificationAsync({
@@ -224,11 +235,25 @@ export async function getUpcomingNotifications(): Promise<{ id: string; title: s
   }
 }
 
-async function cancelNotificationById(id: string) {
+export async function cancelNotificationById(id: string) {
   if (Platform.OS === 'web') return;
   try {
     await Notifications.cancelScheduledNotificationAsync(id);
   } catch (e) {
     // safe ignore
+  }
+}
+
+export async function cancelAllCycleAlerts() {
+  if (Platform.OS === 'web') return;
+  try {
+    const list = await Notifications.getAllScheduledNotificationsAsync();
+    for (const item of list) {
+      if (item.identifier.startsWith('cycle-alert-') || item.identifier.startsWith('ovulation-alert-')) {
+        await Notifications.cancelScheduledNotificationAsync(item.identifier);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to cancel cycle alerts:', error);
   }
 }

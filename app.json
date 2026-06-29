@@ -2,7 +2,7 @@
   "expo": {
     "name": "Reglim & Takvim",
     "slug": "reglim-takvim",
-    "version": "2.0.0",
+    "version": "2.3.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "reglim-takvim",
@@ -15,7 +15,7 @@
     "android": {
       "package": "com.regliyiz.app",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 46,
+      "versionCode": 58,
       "adaptiveIcon": {
         "backgroundColor": "#121214",
         "foregroundImage": "./assets/images/icon.png"
@@ -36,7 +36,7 @@
         {
           "backgroundColor": "#000000",
           "image": "./assets/images/splash-icon.png",
-          "resizeMode": "cover"
+          "resizeMode": "contain"
         }
       ],
       "expo-sqlite",
@@ -44,7 +44,12 @@
       "expo-localization",
       "expo-sharing",
       "expo-local-authentication",
-      "@react-native-google-signin/google-signin"
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.393754770159-37gitini3bo06i37vk1bjmmaup3qicrt"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -53,8 +58,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "cacd28a0-d4a2-469b-b05b-5b2c8a59fdff"
+        "projectId": "9b263c72-f62c-483f-a6ab-c23beb809ae7"
       }
-    }
+    },
+    "owner": "takvim"
   }
 }

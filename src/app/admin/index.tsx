@@ -1,19 +1,19 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  SafeAreaView,
-  Alert,
-  Platform,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { ChevronLeft, Key, Bell, ShieldAlert, Sparkles, MessageSquare, Terminal } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
+import { useRouter } from 'expo-router';
+import { Bell, ChevronLeft, MessageSquare, Sparkles, Terminal } from 'lucide-react-native';
+import { useState } from 'react';
+import {
+  Alert,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export default function AdminPanelScreen() {
   const router = useRouter();
@@ -34,14 +34,14 @@ export default function AdminPanelScreen() {
       Alert.alert('Hata', 'Lütfen başlık ve mesaj girin.');
       return;
     }
-    
+
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     try {
       // Trigger a local notification immediately to simulate the FCM push alert!
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: `📣 [Kampanya] ${pushTitle}`,
+          title: `📣 [Merhaba !] ${pushTitle}`,
           body: pushBody,
           data: { type: 'admin_push' },
         },
@@ -69,7 +69,7 @@ export default function AdminPanelScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        
+
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -111,7 +111,7 @@ export default function AdminPanelScreen() {
             <Bell size={18} color="#FF2366" />
             <Text style={styles.cardTitle}>Push Bildirim Kampanyası</Text>
           </View>
-          
+
           <TextInput
             placeholder="Bildirim Başlığı"
             placeholderTextColor="#555"
@@ -139,7 +139,7 @@ export default function AdminPanelScreen() {
             <MessageSquare size={18} color="#00B4D8" />
             <Text style={styles.cardTitle}>Sistem İçi Duyuru</Text>
           </View>
-          
+
           <TextInput
             placeholder="Ana sayfa tavsiyelerine eklenecek duyuru..."
             placeholderTextColor="#555"
@@ -158,7 +158,7 @@ export default function AdminPanelScreen() {
             <Terminal size={18} color="#06D6A0" />
             <Text style={styles.cardTitle}>Sunucu Hata Günlüğü & Logs</Text>
           </View>
-          
+
           <View style={styles.consoleBox}>
             {logs.map((l, idx) => (
               <Text key={idx} style={styles.consoleLine}>

@@ -5,8 +5,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { getCycles, getDailyLogsRange, DailyLogInput } from '../../database/db';
 import { calculatePredictions, PredictionResult } from '../../utils/periodEngine';
@@ -14,8 +14,13 @@ import { ChevronLeft, ChevronRight, Filter, Plus, Calendar as CalendarIcon } fro
 import * as Haptics from 'expo-haptics';
 import { getLocalDateString } from '../../utils/date';
 
+const parseUtcDate = (dateStr: string) => {
+  return new Date(dateStr.includes('T') ? dateStr : `${dateStr}T00:00:00Z`).getTime();
+};
+
 export default function CalendarScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDateStr, setSelectedDateStr] = useState(getLocalDateString());
@@ -132,12 +137,12 @@ export default function CalendarScreen() {
   const getDayStatus = (dateStr: string) => {
     if (!predictions) return { isPeriod: false, isFertile: false, isOvulation: false, hasLog: false };
 
-    const todayVal = new Date(dateStr).getTime();
+    const todayVal = parseUtcDate(dateStr);
     
     // Check local database cycles to see if period occurred
     const isLoggedPeriod = cycles.some(c => {
-      const start = new Date(c.start_date).getTime();
-      const end = c.end_date ? new Date(c.end_date).getTime() : new Date(c.start_date).getTime() + 4*24*60*60*1000;
+      const start = parseUtcDate(c.start_date);
+      const end = c.end_date ? parseUtcDate(c.end_date) : parseUtcDate(c.start_date) + 4*24*60*60*1000;
       return todayVal >= start && todayVal <= end;
     });
 
@@ -147,11 +152,11 @@ export default function CalendarScreen() {
     let isOvulation = false;
 
     predictions.futureCycles.forEach(fc => {
-      const start = new Date(fc.startDate).getTime();
-      const end = new Date(fc.endDate).getTime();
-      const fertS = new Date(fc.fertileStart).getTime();
-      const fertE = new Date(fc.fertileEnd).getTime();
-      const ov = new Date(fc.ovulationDate).getTime();
+      const start = parseUtcDate(fc.startDate);
+      const end = parseUtcDate(fc.endDate);
+      const fertS = parseUtcDate(fc.fertileStart);
+      const fertE = parseUtcDate(fc.fertileEnd);
+      const ov = parseUtcDate(fc.ovulationDate);
 
       if (todayVal >= start && todayVal <= end) {
         isPredPeriod = true;
@@ -316,7 +321,7 @@ export default function CalendarScreen() {
           <View style={styles.logsPanelHeader}>
             <CalendarIcon size={18} color="#FF2366" />
             <Text style={styles.logsPanelTitle}>
-              {new Date(selectedDateStr).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+              {new Date(selectedDateStr + 'T12:00:00').toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
             </Text>
           </View>
 
@@ -391,7 +396,7 @@ export default function CalendarScreen() {
         </View>
 
         {/* Padding for bottom tab bar */}
-        <View style={{ height: 140 }} />
+        <View style={{ height: Math.max(140, insets.bottom + 90) }} />
       </ScrollView>
     </SafeAreaView>
   );

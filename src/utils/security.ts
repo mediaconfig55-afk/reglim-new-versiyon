@@ -1,6 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import CryptoJS from 'crypto-js';
 
 const ENCRYPTION_KEY_ALIAS = 'reglim_takvim_db_key';
@@ -56,15 +57,42 @@ async function getOrCreateEncryptionKey(): Promise<string> {
   try {
     let key = await secureGet(ENCRYPTION_KEY_ALIAS);
     if (!key) {
-      // Generate a strong random 256-bit key
-      key = CryptoJS.lib.WordArray.random(32).toString();
-      await secureSet(ENCRYPTION_KEY_ALIAS, key);
+      // Check AsyncStorage fallback first
+      key = await AsyncStorage.getItem(ENCRYPTION_KEY_ALIAS);
+      if (!key) {
+        // Generate a strong random 256-bit key
+        key = CryptoJS.lib.WordArray.random(32).toString();
+        try {
+          await secureSet(ENCRYPTION_KEY_ALIAS, key);
+        } catch (secureStoreError) {
+          console.warn('SecureStore failed, saving encryption key to AsyncStorage fallback:', secureStoreError);
+          await AsyncStorage.setItem(ENCRYPTION_KEY_ALIAS, key);
+        }
+      } else {
+        // Try to migrate back to SecureStore if it is working now
+        try {
+          await secureSet(ENCRYPTION_KEY_ALIAS, key);
+        } catch (e) {
+          // ignore migration error
+        }
+      }
     }
     return key;
   } catch (error) {
     console.error('Failed to get/create encryption key:', error);
-    // Fallback key (not ideal, but prevents app crashes if SecureStore fails)
-    return 'fallback_reglim_takvim_secure_key_123!';
+    try {
+      let key = await AsyncStorage.getItem(ENCRYPTION_KEY_ALIAS);
+      if (!key) {
+        key = CryptoJS.lib.WordArray.random(32).toString();
+        await AsyncStorage.setItem(ENCRYPTION_KEY_ALIAS, key);
+      }
+      return key;
+    } catch (fallbackError) {
+      console.error('AsyncStorage fallback also failed, generating session-only key:', fallbackError);
+      // Last resort: a session-only key (not persisted — data only accessible this session)
+      // This is safer than a predictable hard-coded key
+      return CryptoJS.lib.WordArray.random(32).toString();
+    }
   }
 }
 

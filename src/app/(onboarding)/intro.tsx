@@ -1,10 +1,12 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Sparkles } from 'lucide-react-native';
 
 export default function IntroScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -18,7 +20,7 @@ export default function IntroScreen() {
         </Text>
       </View>
       
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(24, insets.bottom + 12) }]}>
         <TouchableOpacity style={styles.button} onPress={() => router.push('/(onboarding)/terms')}>
           <Text style={styles.buttonText}>Başlayalım</Text>
         </TouchableOpacity>
