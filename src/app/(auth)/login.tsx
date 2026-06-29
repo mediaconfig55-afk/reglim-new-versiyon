@@ -11,6 +11,7 @@ import {
   ScrollView,
   Modal,
   Animated,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../../store/store';
@@ -28,10 +29,12 @@ import {
   updateProfile 
 } from 'firebase/auth';
 import { auth, restoreCyclesAndLogsFromCloud, restoreUserProfile } from '../../services/firebase';
+import { clearDatabase } from '../../database/db';
 
 export default function LoginScreen() {
   const router = useRouter();
   const setUser = useAppStore(state => state.setUser);
+  const setOnboarded = useAppStore(state => state.setOnboarded);
 
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
@@ -93,23 +96,73 @@ export default function LoginScreen() {
 
       let cloudProfile = null;
       if (isLogin) {
-        await restoreCyclesAndLogsFromCloud(fbUser.uid);
         cloudProfile = await restoreUserProfile(fbUser.uid);
       }
 
-      const mergedSessionUser = {
-        ...sessionUser,
-        displayName: cloudProfile?.displayName || sessionUser.displayName,
-        birthDate: cloudProfile?.birthDate || undefined,
-        avgCycleLength: cloudProfile?.avgCycleLength || undefined,
-        avgPeriodLength: cloudProfile?.avgPeriodLength || undefined,
-      };
-
-      await AsyncStorage.setItem('user_session', JSON.stringify(mergedSessionUser));
-      setUser(mergedSessionUser);
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace('/(tabs)');
+      if (cloudProfile) {
+        Alert.alert(
+          'Mevcut Verileriniz Bulundu! 🌟',
+          `Bulutta kayıtlı yedekleriniz bulundu (${cloudProfile.displayName || 'Kullanıcı'}). Eski bilgilerinizi ve adet geçmişinizi geri yüklemek ister misiniz?`,
+          [
+            {
+              text: 'Yeni Başla',
+              style: 'cancel',
+              onPress: async () => {
+                setLoading(true);
+                await clearDatabase();
+                const sessionUser = {
+                  uid: fbUser.uid,
+                  email: fbUser.email,
+                  displayName: name || fbUser.displayName || 'Kullanıcı',
+                  isAnonymous: false,
+                };
+                await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
+                setUser(sessionUser);
+                await setOnboarded(false);
+                setLoading(false);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                router.replace('/(onboarding)/intro');
+              }
+            },
+            {
+              text: 'Geri Yükle ve Başla',
+              style: 'default',
+              onPress: async () => {
+                setLoading(true);
+                await restoreCyclesAndLogsFromCloud(fbUser.uid);
+                const sessionUser = {
+                  uid: fbUser.uid,
+                  email: fbUser.email,
+                  displayName: cloudProfile.displayName || fbUser.displayName || 'Kullanıcı',
+                  birthDate: cloudProfile.birthDate || undefined,
+                  avgCycleLength: cloudProfile.avgCycleLength || undefined,
+                  avgPeriodLength: cloudProfile.avgPeriodLength || undefined,
+                  isAnonymous: false,
+                };
+                await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
+                setUser(sessionUser);
+                await setOnboarded(true); // Skip onboarding
+                setLoading(false);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                router.replace('/(tabs)');
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+      } else {
+        const sessionUser = {
+          uid: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName || name || 'Kullanıcı',
+          isAnonymous: false,
+        };
+        await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
+        setUser(sessionUser);
+        await setOnboarded(false);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        router.replace('/(onboarding)/intro');
+      }
     } catch (e: any) {
       console.error('Auth Error:', e);
       let errMsg = 'Giriş/Kayıt sırasında hata oluştu.';
@@ -185,23 +238,74 @@ export default function LoginScreen() {
         isAnonymous: false,
       };
 
-      await restoreCyclesAndLogsFromCloud(fbUser.uid);
       const cloudProfile = await restoreUserProfile(fbUser.uid);
 
-      const mergedSessionUser = {
-        ...sessionUser,
-        displayName: cloudProfile?.displayName || fbUser.displayName || sessionUser.displayName,
-        birthDate: cloudProfile?.birthDate || undefined,
-        avgCycleLength: cloudProfile?.avgCycleLength || undefined,
-        avgPeriodLength: cloudProfile?.avgPeriodLength || undefined,
-      };
-
-      await AsyncStorage.setItem('user_session', JSON.stringify(mergedSessionUser));
-      // Save user session in pending state and show modal first (do NOT call setUser yet)
-      setPendingSessionUser(mergedSessionUser);
-      setSuccessUserName(mergedSessionUser.displayName);
-      setShowSuccessModal(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (cloudProfile) {
+        Alert.alert(
+          'Mevcut Verileriniz Bulundu! 🌟',
+          `Bulutta kayıtlı yedekleriniz bulundu (${cloudProfile.displayName || 'Google Kullanıcısı'}). Eski bilgilerinizi ve adet geçmişinizi geri yüklemek ister misiniz?`,
+          [
+            {
+              text: 'Yeni Başla',
+              style: 'cancel',
+              onPress: async () => {
+                setLoading(true);
+                await clearDatabase();
+                const sessionUser = {
+                  uid: fbUser.uid,
+                  email: fbUser.email,
+                  displayName: fbUser.displayName || 'Google Kullanıcısı',
+                  isAnonymous: false,
+                };
+                await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
+                setPendingSessionUser(sessionUser);
+                setSuccessUserName(sessionUser.displayName);
+                await setOnboarded(false);
+                setShowSuccessModal(true);
+                setLoading(false);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              }
+            },
+            {
+              text: 'Geri Yükle ve Başla',
+              style: 'default',
+              onPress: async () => {
+                setLoading(true);
+                await restoreCyclesAndLogsFromCloud(fbUser.uid);
+                const mergedSessionUser = {
+                  ...sessionUser,
+                  displayName: cloudProfile.displayName || fbUser.displayName || sessionUser.displayName,
+                  birthDate: cloudProfile.birthDate || undefined,
+                  avgCycleLength: cloudProfile.avgCycleLength || undefined,
+                  avgPeriodLength: cloudProfile.avgPeriodLength || undefined,
+                  isAnonymous: false,
+                };
+                await AsyncStorage.setItem('user_session', JSON.stringify(mergedSessionUser));
+                setPendingSessionUser(mergedSessionUser);
+                setSuccessUserName(mergedSessionUser.displayName);
+                await setOnboarded(true); // Mark onboarded
+                setShowSuccessModal(true);
+                setLoading(false);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              }
+            }
+          ],
+          { cancelable: false }
+        );
+      } else {
+        const sessionUser = {
+          uid: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName || 'Google Kullanıcısı',
+          isAnonymous: false,
+        };
+        await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
+        setPendingSessionUser(sessionUser);
+        setSuccessUserName(sessionUser.displayName);
+        await setOnboarded(false);
+        setShowSuccessModal(true);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
     } catch (e: any) {
       console.error('Google Sign-In error:', e?.code, e?.message);
       if (e.code === statusCodes.SIGN_IN_CANCELLED) {

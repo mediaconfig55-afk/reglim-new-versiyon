@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { clearPIN } from '../utils/security';
 
@@ -148,6 +149,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         'is_onboarded',
       ]);
       await clearPIN();
+
+      // Clear Google Sign-In session to force account chooser on next login
+      if (Platform.OS !== 'web') {
+        try {
+          const { GoogleSignin } = require('@react-native-google-signin/google-signin');
+          await GoogleSignin.signOut();
+          console.log('Google Sign-In session signed out successfully.');
+        } catch (e) {
+          console.warn('Google Sign-In signout warning:', e);
+        }
+      }
     } catch (e) {
       console.error('Failed to clear user storage and PIN on logout:', e);
     }
