@@ -34,6 +34,7 @@ import * as Haptics from 'expo-haptics';
 import { getLocalDateString } from '../utils/date';
 import { CustomAlert } from '../components/ui/custom-alert';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+import { useTheme } from '../constants/theme';
 
 // Categorized Moods list with emojis, categories and premium HSL matching colors
 const MOODS_CATEGORIES: Record<string, { name: string; emoji: string; color: string; bg: string }[]> = {
@@ -160,6 +161,8 @@ const SYMPTOMS_CATEGORIES: Record<string, string[]> = {
   Özel: [
     'Cinsel İlişki',
     'Korunmasız İlişki',
+    'Orgazm',
+    'Doğum Kontrol Hapı',
     'Doktor Kontrolü',
     'Alkol Tüketimi',
     'Kafein Tüketimi',
@@ -181,6 +184,7 @@ export default function LogDayModal() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
 
   const selectedDateStr = (params.date as string) || getLocalDateString();
 
@@ -325,27 +329,28 @@ export default function LogDayModal() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF2366" />
+        <ActivityIndicator size="large" color={theme.primary} />
         <Text style={styles.loadingText}>Yükleniyor...</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
-          <X size={20} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Günü Düzenle</Text>
-        <TouchableOpacity onPress={handleSave} style={styles.saveHeaderBtn}>
-          <Check size={20} color="#FF2366" />
-        </TouchableOpacity>
-      </View>
+    <ExpoLinearGradient colors={theme.bgGradient} style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn}>
+            <X size={20} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Günü Düzenle</Text>
+          <TouchableOpacity onPress={handleSave} style={styles.saveHeaderBtn}>
+            <Check size={20} color={theme.primary} />
+          </TouchableOpacity>
+        </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <Text style={styles.dateBanner}>
+        <Text style={[styles.dateBanner, { color: theme.primary }]}>
           {new Date(selectedDateStr + 'T12:00:00').toLocaleDateString('tr-TR', {
             weekday: 'long',
             day: 'numeric',
@@ -355,7 +360,7 @@ export default function LogDayModal() {
         </Text>
 
         {/* Period Check */}
-        <View style={styles.periodCard}>
+        <View style={[styles.periodCard, { backgroundColor: theme.primary + '0A', borderColor: theme.primary + '1F' }]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.periodCardTitle}>Regl Başlangıç Günü Mü?</Text>
             <Text style={styles.periodCardSub}>Bugün yeni adet döngünüzün ilk günü ise aktif edin.</Text>
@@ -365,7 +370,7 @@ export default function LogDayModal() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               setIsPeriodStartDay(!isPeriodStartDay);
             }}
-            style={[styles.checkbox, isPeriodStartDay && styles.checkboxActive]}
+            style={[styles.checkbox, { borderColor: theme.primary }, isPeriodStartDay && [styles.checkboxActive, { backgroundColor: theme.primary }]]}
           >
             {isPeriodStartDay && <Check size={14} color="#fff" />}
           </TouchableOpacity>
@@ -393,6 +398,7 @@ export default function LogDayModal() {
                   styles.progressBarFill,
                   {
                     width: `${(getCompletedChecklistCount() / CHECKLIST_ITEMS.length) * 100}%`,
+                    backgroundColor: theme.primary,
                   },
                 ]}
               />
@@ -477,7 +483,7 @@ export default function LogDayModal() {
             ========================================================================= */}
         <View style={styles.section}>
           <View style={styles.sectionTitleRow}>
-            <Flame size={18} color="#FF2366" />
+            <Flame size={18} color={theme.primary} />
             <Text style={styles.sectionTitle}>Semptom ve Belirtiler</Text>
           </View>
 
@@ -486,7 +492,7 @@ export default function LogDayModal() {
             const activeCount = getCategoryActiveCount(catName, list);
 
             return (
-              <View key={catName} style={styles.accordionCard}>
+              <View key={catName} style={[styles.accordionCard, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
                 <TouchableOpacity
                   activeOpacity={0.8}
                   onPress={() => toggleCategory(catName)}
@@ -495,7 +501,7 @@ export default function LogDayModal() {
                   <View style={styles.accordionHeaderLeft}>
                     <Text style={styles.accordionTitle}>{catName} Belirtiler</Text>
                     {activeCount > 0 && (
-                      <View style={styles.activeBadge}>
+                      <View style={[styles.activeBadge, { backgroundColor: theme.primary }]}>
                         <Text style={styles.activeBadgeText}>{activeCount}</Text>
                       </View>
                     )}
@@ -508,7 +514,7 @@ export default function LogDayModal() {
                 </TouchableOpacity>
 
                 {isOpen && (
-                  <View style={styles.accordionBody}>
+                  <View style={[styles.accordionBody, { backgroundColor: theme.bgElement }]}>
                     <View style={styles.gridContainer}>
                       {list.map((s) => {
                         const isSelected = selectedSymptoms.includes(s);
@@ -518,13 +524,13 @@ export default function LogDayModal() {
                             onPress={() => toggleSymptom(s)}
                             style={[
                               styles.tagCell,
-                              isSelected && styles.symptomTagSelected,
+                              isSelected && [styles.symptomTagSelected, { backgroundColor: theme.primary + '1A', borderColor: theme.primary }],
                             ]}
                           >
                             <Text
                               style={[
                                 styles.tagText,
-                                isSelected && styles.tagTextActive,
+                                isSelected && [styles.tagTextActive, { color: theme.primary }],
                               ]}
                             >
                               {s}
@@ -542,13 +548,13 @@ export default function LogDayModal() {
                               onPress={() => toggleSymptom(s.name)}
                               style={[
                                 styles.tagCell,
-                                isSelected && styles.symptomTagSelected,
+                                isSelected && [styles.symptomTagSelected, { backgroundColor: theme.primary + '1A', borderColor: theme.primary }],
                               ]}
                             >
                               <Text
                                 style={[
                                   styles.tagText,
-                                  isSelected && styles.tagTextActive,
+                                  isSelected && [styles.tagTextActive, { color: theme.primary }],
                                 ]}
                               >
                                 {s.name}
@@ -578,16 +584,16 @@ export default function LogDayModal() {
               value={customSymptomInput}
               onChangeText={setCustomSymptomInput}
             />
-            <TouchableOpacity onPress={handleAddCustomSymptom} style={styles.addCustomBtn}>
+            <TouchableOpacity onPress={handleAddCustomSymptom} style={[styles.addCustomBtn, { backgroundColor: theme.primary }]}>
               <Plus size={20} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Bottom Save Button */}
-        <TouchableOpacity onPress={handleSave} style={styles.saveBtn}>
+        <TouchableOpacity onPress={handleSave} style={[styles.saveBtn, { shadowColor: theme.primary }]}>
           <ExpoLinearGradient
-            colors={['#FF2366', '#FF4D6D']}
+            colors={[theme.primary, theme.primary + 'CC']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.saveGradient}
@@ -606,7 +612,8 @@ export default function LogDayModal() {
         type={alertConfig.type}
         onConfirm={() => setAlertConfig((prev) => ({ ...prev, visible: false }))}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </ExpoLinearGradient>
   );
 }
 

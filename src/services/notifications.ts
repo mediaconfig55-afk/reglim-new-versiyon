@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { useAppStore } from '../store/store';
 
 // Set up the default handler for when the app is foregrounded
 Notifications.setNotificationHandler({
@@ -53,6 +54,74 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   return true;
 }
 
+function getCamouflagedTexts(type: 'cycle' | 'ovulation', details?: string) {
+  const store = useAppStore.getState();
+  const mode = store.discreetNotificationMode || 'standard';
+  const customText = store.customDiscreetText || '';
+
+  if (mode === 'water') {
+    return {
+      title: 'Su Zamanı! 💧',
+      body: type === 'cycle'
+        ? 'Vücudunuzu nemli tutmak regl kramplarını azaltır. Haydi büyük bir bardak su içelim!'
+        : 'Bugün bol bol su içtiğinizden emin olun! Sağlıklı bir gün geçirelim.',
+    };
+  } else if (mode === 'flower') {
+    return {
+      title: 'Çiçekleri Sulama Zamanı! 🌸',
+      body: type === 'cycle'
+        ? 'Evdeki çiçekleri kontrol etme vakti. Onları sulamayı ve ilgilenmeyi unutmayın!'
+        : 'Çiçeğinizin güneşe ve taze havaya ihtiyacı var. Bugün ilgilenin!',
+    };
+  } else if (mode === 'custom' && customText.trim().length > 0) {
+    return {
+      title: 'Kişisel Hatırlatıcı ✨',
+      body: customText,
+    };
+  }
+
+  // Default Standard
+  if (type === 'cycle') {
+    return {
+      title: 'Regl Dönemi Yaklaşıyor 🌸',
+      body: details || 'Tahmini regl başlangıcınıza az kaldı. Semptomlarınızı kaydetmeyi unutmayın!',
+    };
+  } else {
+    return {
+      title: 'Yumurtlama Günü 🟣',
+      body: 'Bugün yumurtlama gününüz! Hamilelik olasılığınız zirvede. Vücudunuzun işaretlerini takip edin.',
+    };
+  }
+}
+
+function getLogReminderTexts() {
+  const store = useAppStore.getState();
+  const mode = store.discreetNotificationMode || 'standard';
+  const customText = store.customDiscreetText || '';
+
+  if (mode === 'water') {
+    return {
+      title: 'Su Seviyesi Kontrolü 💧',
+      body: 'Günü bitirmeden önce su tüketim hedefini kontrol etmeyi unutma!',
+    };
+  } else if (mode === 'flower') {
+    return {
+      title: 'Bahçe Günlüğü 🌸',
+      body: 'Çiçeklerinin bugünkü gelişimini kaydetmeyi unutma!',
+    };
+  } else if (mode === 'custom' && customText.trim().length > 0) {
+    return {
+      title: 'Günün Notu 📝',
+      body: 'Bugünkü günlüğü doldurmayı ve notlarını eklemeyi unutma!',
+    };
+  }
+
+  return {
+    title: 'Günün Nasıl Geçti? ✨',
+    body: 'Bugünkü ruh halini ve fiziksel semptomlarını kaydederek döngü tahminlerini güçlendir.',
+  };
+}
+
 /**
  * Schedule a local notification for cycle alerts
  */
@@ -68,11 +137,12 @@ export async function scheduleCycleAlert(daysUntil: number, dateStr: string) {
 
     const now = new Date();
     if (targetDate.getTime() > now.getTime()) {
+      const textInfo = getCamouflagedTexts('cycle', `Tahmini regl başlangıcınıza ${daysUntil} gün kaldı. Kendinizi hazırlamayı ve semptomlarınızı kaydetmeyi unutmayın!`);
       await Notifications.scheduleNotificationAsync({
         identifier: `cycle-alert-${dateStr}`,
         content: {
-          title: 'Regl Dönemi Yaklaşıyor 🌸',
-          body: `Tahmini regl başlangıcınıza ${daysUntil} gün kaldı. Kendinizi hazırlamayı ve semptomlarınızı kaydetmeyi unutmayın!`,
+          title: textInfo.title,
+          body: textInfo.body,
           data: { type: 'cycle', targetDate: dateStr },
         },
         trigger: {
@@ -100,11 +170,12 @@ export async function scheduleOvulationAlert(dateStr: string) {
 
     const now = new Date();
     if (targetDate.getTime() > now.getTime()) {
+      const textInfo = getCamouflagedTexts('ovulation');
       await Notifications.scheduleNotificationAsync({
         identifier: `ovulation-alert-${dateStr}`,
         content: {
-          title: 'Yumurtlama Günü 🟣',
-          body: 'Bugün yumurtlama gününüz! Hamilelik olasılığınız zirvede. Vücudunuzun işaretlerini takip edin.',
+          title: textInfo.title,
+          body: textInfo.body,
           data: { type: 'ovulation', targetDate: dateStr },
         },
         trigger: {
@@ -148,11 +219,12 @@ export async function scheduleDailyReminders() {
     });
 
     // 2. Daily Log Reminder (Daily at 20:30)
+    const logText = getLogReminderTexts();
     await Notifications.scheduleNotificationAsync({
       identifier: 'daily-log-reminder',
       content: {
-        title: 'Günün Nasıl Geçti? ✨',
-        body: 'Bugünkü ruh halini ve fiziksel semptomlarını kaydederek döngü tahminlerini güçlendir.',
+        title: logText.title,
+        body: logText.body,
         data: { type: 'log' },
       },
       trigger: {
@@ -188,11 +260,68 @@ export async function scheduleDailyReminders() {
 }
 
 /**
+ * Schedule daily birth control pill reminder
+ */
+export async function schedulePillReminder() {
+  if (Platform.OS === 'web') return;
+  try {
+    await cancelNotificationById('contraceptive-pill-reminder');
+
+    const store = useAppStore.getState();
+    const config = store.contraceptiveConfig;
+
+    if (!config || !config.enabled) return;
+
+    // Parse reminderTime e.g. "21:00"
+    const [hourStr, minuteStr] = config.reminderTime.split(':');
+    const hour = parseInt(hourStr, 10);
+    const minute = parseInt(minuteStr, 10);
+
+    let title = 'Hap Zamanı! 💊';
+    let body = 'Günlük kontraseptif hapınızı alma zamanı geldi. Lütfen geciktirmeyin!';
+
+    const mode = store.discreetNotificationMode || 'standard';
+    if (mode === 'water') {
+      title = 'Ekstra Hidrasyon Vakti 💧';
+      body = 'Bugünkü vitamin ve hidrasyon takviyenizi almayı unutmayın!';
+    } else if (mode === 'flower') {
+      title = 'Bitki Besini 🌸';
+      body = 'Özel bitki vitaminlerini ekleme zamanı geldi!';
+    } else if (mode === 'custom' && store.customDiscreetText) {
+      title = 'Günlük Rutin Hatırlatıcısı ✨';
+      body = store.customDiscreetText;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: 'contraceptive-pill-reminder',
+      content: {
+        title,
+        body,
+        data: { type: 'pill' },
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
+        hour,
+        minute,
+        repeats: true,
+        channelId: 'default',
+      },
+    });
+
+    console.log(`Pill reminder scheduled daily at ${config.reminderTime}`);
+  } catch (error) {
+    console.error('Failed to schedule pill reminder:', error);
+  }
+}
+
+/**
  * Get all upcoming scheduled notifications for display on dashboard
  */
 export async function getUpcomingNotifications(): Promise<{ id: string; title: string; triggerTime: string; body: string }[]> {
   if (Platform.OS === 'web') {
-    return [
+    const store = useAppStore.getState();
+    const config = store.contraceptiveConfig;
+    const reminders = [
       {
         id: 'daily-water-reminder',
         title: 'Su Zamanı! 💧',
@@ -212,6 +341,15 @@ export async function getUpcomingNotifications(): Promise<{ id: string; title: s
         triggerTime: 'Her Gün 22:30',
       },
     ];
+    if (config && config.enabled) {
+      reminders.push({
+        id: 'contraceptive-pill-reminder',
+        title: 'Hap Zamanı! 💊',
+        body: 'Günlük kontraseptif hapınızı alma zamanı geldi. Lütfen geciktirmeyin!',
+        triggerTime: `Her Gün ${config.reminderTime}`,
+      });
+    }
+    return reminders;
   }
 
   try {

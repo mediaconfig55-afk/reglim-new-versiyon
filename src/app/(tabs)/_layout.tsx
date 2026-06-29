@@ -1,6 +1,6 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Colors } from '../../constants/theme';
+import { Colors, useTheme } from '../../constants/theme';
 import { Home, Calendar, Activity, BarChart3, Settings } from 'lucide-react-native';
 import { StyleSheet, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -8,12 +8,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: '#FF2366',
+        tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: '#8E8E93',
         tabBarStyle: [styles.tabBar, { bottom: Math.max(insets.bottom + 10, 20) }],
         tabBarBackground: () => (

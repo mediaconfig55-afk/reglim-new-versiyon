@@ -16,10 +16,13 @@ import { Activity, Heart, Droplet, Moon, Scale, Sparkles, MessageSquare, Save } 
 import * as Haptics from 'expo-haptics';
 import { getLocalDateString } from '../../utils/date';
 import { CustomAlert } from '../../components/ui/custom-alert';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme } from '../../constants/theme';
 
 export default function HealthTrackerScreen() {
   const todayStr = getLocalDateString();
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
 
   const [log, setLog] = useState<DailyLogInput>({
     date: todayStr,
@@ -174,18 +177,19 @@ export default function HealthTrackerScreen() {
   const bmiCat = isBmiValid ? getBMICategory(bmi) : { text: 'Veri Yok', color: '#888' };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Sağlık Takip Merkezi</Text>
-            <Text style={styles.headerSub}>Günlük biyometrik ve yaşamsal verilerinizi loglayın</Text>
-          </View>
+    <LinearGradient colors={theme.bgGradient} style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            
+            {/* Header */}
+            <View style={styles.header}>
+              <Text style={styles.headerTitle}>Sağlık Takip Merkezi</Text>
+              <Text style={styles.headerSub}>Günlük biyometrik ve yaşamsal verilerinizi loglayın</Text>
+            </View>
 
           {successMsg ? (
             <View style={styles.successAlert}>
@@ -194,7 +198,7 @@ export default function HealthTrackerScreen() {
           ) : null}
 
           {/* 1. BMI Card */}
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
             <View style={styles.cardHeader}>
               <Scale size={18} color="#06D6A0" />
               <Text style={styles.cardTitle}>Vücut Kitle Endeksi (BMI)</Text>
@@ -246,7 +250,7 @@ export default function HealthTrackerScreen() {
           </View>
 
           {/* 2. Water and Sleep Card */}
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
             <View style={styles.cardHeader}>
               <Moon size={18} color="#9B5DE5" />
               <Text style={styles.cardTitle}>Su ve Uyku Hedefleri</Text>
@@ -293,7 +297,7 @@ export default function HealthTrackerScreen() {
           </View>
 
           {/* 3. Steps & Calories Card */}
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
             <View style={styles.cardHeader}>
               <Activity size={18} color="#FFB703" />
               <Text style={styles.cardTitle}>Günlük Aktivite</Text>
@@ -333,13 +337,13 @@ export default function HealthTrackerScreen() {
           </View>
 
           {/* 4. Vital Signs (BP, Pulse, Blood Sugar) - AES ENCRYPTED locally in DB */}
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
             <View style={styles.cardHeader}>
-              <Heart size={18} color="#FF2366" />
+              <Heart size={18} color={theme.primary} />
               <Text style={styles.cardTitle}>Yaşamsal Bulgular & Vitals (Şifreli)</Text>
             </View>
             
-            <Text style={styles.encryptShieldText}>
+            <Text style={[styles.encryptShieldText, { color: theme.primary, backgroundColor: theme.primary + '0D', borderColor: theme.primary + '1F' }]}>
               🛡️ Sağlık verileriniz KVKK/GDPR uyumlu şekilde lokal veritabanında AES-256 ile şifrelenerek saklanır.
             </Text>
 
@@ -409,9 +413,9 @@ export default function HealthTrackerScreen() {
           </View>
 
           {/* 5. Health Notes (AES ENCRYPTED) */}
-          <View style={styles.card}>
+          <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
             <View style={styles.cardHeader}>
-              <MessageSquare size={18} color="#FF2366" />
+              <MessageSquare size={18} color={theme.primary} />
               <Text style={styles.cardTitle}>Günün Özel Sağlık Notları (Şifreli)</Text>
             </View>
             
@@ -429,7 +433,7 @@ export default function HealthTrackerScreen() {
           {/* Save Button */}
           <TouchableOpacity
             onPress={handleSave}
-            style={styles.saveBtn}
+            style={[styles.saveBtn, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
             disabled={saving}
           >
             <Save size={18} color="#fff" style={{ marginRight: 8 }} />
@@ -448,7 +452,8 @@ export default function HealthTrackerScreen() {
         type={alertConfig.type}
         onConfirm={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 

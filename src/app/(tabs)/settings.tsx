@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CustomAlert } from '../../components/ui/custom-alert';
@@ -16,8 +17,10 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useAppStore, PremiumTier } from '../../store/store';
 import { getUnsyncedData, markCycleSynced, markLogSynced, clearDatabase } from '../../database/db';
 import { savePIN, clearPIN } from '../../utils/security';
-import { Shield, Sparkles, CloudRain, ToggleLeft, UserCheck, Key, HelpCircle, UserX, Settings, Bell } from 'lucide-react-native';
+import { Shield, Sparkles, CloudRain, ToggleLeft, UserCheck, Key, HelpCircle, UserX, Settings, Bell, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useTheme, THEMES } from '../../constants/theme';
 import { auth, syncCyclesAndLogsToCloud, restoreCyclesAndLogsFromCloud, syncUserProfile } from '../../services/firebase';
 import { signOut } from 'firebase/auth';
 import CryptoJS from 'crypto-js';
@@ -28,6 +31,7 @@ import {
   scheduleDailyReminders,
   cancelNotificationById,
   cancelAllCycleAlerts,
+  schedulePillReminder,
 } from '../../services/notifications';
 
 export default function SettingsScreen() {
@@ -50,7 +54,28 @@ export default function SettingsScreen() {
     setLastSyncTime,
     syncStatus,
     setSyncStatus,
+    themeName,
+    setThemeName,
+    contraceptiveConfig,
+    setContraceptiveConfig,
+    discreetNotificationMode,
+    setDiscreetNotificationMode,
+    customDiscreetText,
   } = useAppStore();
+
+  const theme = useTheme();
+
+  // Local birth control and discreet text inputs
+  const [bcStartDate, setBcStartDate] = useState(contraceptiveConfig.startDate || new Date().toISOString().split('T')[0]);
+  const [bcReminderTime, setBcReminderTime] = useState(contraceptiveConfig.reminderTime || '21:00');
+  const [localCustomText, setLocalCustomText] = useState(customDiscreetText || '');
+
+  // Keep local states updated with store on mount/focus
+  useEffect(() => {
+    setBcStartDate(contraceptiveConfig.startDate || new Date().toISOString().split('T')[0]);
+    setBcReminderTime(contraceptiveConfig.reminderTime || '21:00');
+    setLocalCustomText(customDiscreetText || '');
+  }, [contraceptiveConfig.startDate, contraceptiveConfig.reminderTime, customDiscreetText]);
 
   const [syncing, setSyncing] = useState(false);
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
@@ -438,8 +463,9 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <LinearGradient colors={theme.bgGradient} style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
         
         {/* Header */}
         <View style={styles.header}>
@@ -457,10 +483,10 @@ export default function SettingsScreen() {
         </View>
 
         {/* 1. Account Profile Card */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.profileRow}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarLetter}>
+            <View style={[styles.avatarCircle, { borderColor: theme.primary }]}>
+              <Text style={[styles.avatarLetter, { color: theme.primary }]}>
                 {user?.displayName ? user.displayName[0].toUpperCase() : 'U'}
               </Text>
             </View>
@@ -505,17 +531,17 @@ export default function SettingsScreen() {
                 setEditAvgPeriod(user?.avgPeriodLength ? String(user.avgPeriodLength) : '');
                 setProfileModalVisible(true);
               }}
-              style={styles.editProfileBtn}
+              style={[styles.editProfileBtn, { backgroundColor: theme.primary + '14', borderColor: theme.primary + '26' }]}
             >
-              <Text style={styles.editProfileBtnText}>Profil ve Döngü Ayarlarını Düzenle</Text>
+              <Text style={[styles.editProfileBtnText, { color: theme.primary }]}>Profil ve Döngü Ayarlarını Düzenle</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* 2. App Mode Configuration */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.settingHeaderRow}>
-            <UserCheck size={18} color="#FF2366" />
+            <UserCheck size={18} color={theme.primary} />
             <Text style={styles.settingHeaderTitle}>Mod Seçimi</Text>
           </View>
 
@@ -529,16 +555,185 @@ export default function SettingsScreen() {
             <Switch
               value={isPregnancyMode}
               onValueChange={handlePregnancyToggle}
-              trackColor={{ false: '#3a3a40', true: '#FF2366' }}
+              trackColor={{ false: '#3a3a40', true: theme.primary }}
               thumbColor={isPregnancyMode ? '#fff' : '#888'}
             />
           </View>
         </View>
 
-        {/* Bildirimler */}
-        <View style={styles.card}>
+        {/* Tema Seçimi */}
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.settingHeaderRow}>
-            <Bell size={18} color="#FF2366" />
+            <Sparkles size={18} color={theme.primary} />
+            <Text style={styles.settingHeaderTitle}>Tema Seçimi</Text>
+          </View>
+          <Text style={[styles.settingDesc, { marginBottom: 16, marginTop: 4 }]}>
+            Uygulamanın görsel temasını kişiselleştirin. Seçtiğiniz premium tema anında uygulanacaktır.
+          </Text>
+          <View style={styles.themeSelectorContainer}>
+            {Object.values(THEMES).map((t) => {
+              const isActive = theme.key === t.key;
+              return (
+                <TouchableOpacity
+                  key={t.key}
+                  style={styles.themeOptionCircleWrapper}
+                  onPress={async () => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    await setThemeName(t.key);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View style={[
+                    styles.themeOptionCircle,
+                    { backgroundColor: t.primary },
+                    isActive && [styles.themeOptionCircleActive, { borderColor: t.primary }]
+                  ]}>
+                    {isActive && (
+                      <Check size={18} color="#fff" strokeWidth={3} />
+                    )}
+                  </View>
+                  <Text style={[
+                    styles.themeOptionText,
+                    isActive && { color: t.primary, fontWeight: '700' }
+                  ]}>
+                    {t.name.split(' ')[0]}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Doğum Kontrol Takibi */}
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
+          <View style={styles.settingHeaderRow}>
+            <Shield size={18} color={theme.primary} />
+            <Text style={styles.settingHeaderTitle}>Doğum Kontrol Takibi</Text>
+          </View>
+
+          <View style={styles.settingItem}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>Doğum Kontrol Takibi</Text>
+              <Text style={styles.settingDesc}>Günlük hap veya koruyucu hatırlatıcı alarmlarını aktif edin.</Text>
+            </View>
+            <Switch
+              value={contraceptiveConfig.enabled}
+              onValueChange={async (val) => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                await setContraceptiveConfig({ enabled: val });
+                if (val) {
+                  await schedulePillReminder();
+                } else {
+                  await cancelNotificationById('contraceptive-pill-reminder');
+                }
+              }}
+              trackColor={{ false: '#3a3a40', true: theme.primary }}
+              thumbColor={contraceptiveConfig.enabled ? '#fff' : '#888'}
+            />
+          </View>
+
+          {contraceptiveConfig.enabled && (
+            <View style={{ marginTop: 12 }}>
+              {/* Yöntem Seçimi */}
+              <Text style={styles.subLabel}>Yöntem Türü</Text>
+              <View style={styles.pillSegmentRow}>
+                {(['pill', 'ring', 'patch', 'injection'] as const).map((t) => (
+                  <TouchableOpacity
+                    key={t}
+                    style={[
+                      styles.pillSegmentBtn,
+                      contraceptiveConfig.type === t && { backgroundColor: theme.primary },
+                    ]}
+                    onPress={async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      await setContraceptiveConfig({ type: t, pillsInPack: t === 'pill' ? 21 : 1 });
+                    }}
+                  >
+                    <Text style={[styles.pillSegmentText, contraceptiveConfig.type === t && { color: '#fff', fontWeight: 'bold' }]}>
+                      {t === 'pill' ? 'Hap' : t === 'ring' ? 'Halka' : t === 'patch' ? 'Plaster' : 'İğne'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {contraceptiveConfig.type === 'pill' && (
+                <>
+                  {/* Paket Modeli */}
+                  <Text style={styles.subLabel}>Paket Düzeni</Text>
+                  <View style={styles.pillSegmentRow}>
+                    {(['21_7', '28_0'] as const).map((m) => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[
+                          styles.pillSegmentBtn,
+                          contraceptiveConfig.packModel === m && { backgroundColor: theme.primary },
+                        ]}
+                        onPress={async () => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          await setContraceptiveConfig({ packModel: m, pillsInPack: m === '21_7' ? 21 : 28 });
+                        }}
+                      >
+                        <Text style={[styles.pillSegmentText, contraceptiveConfig.packModel === m && { color: '#fff', fontWeight: 'bold' }]}>
+                          {m === '21_7' ? '21+7 Gün Ara' : '28 Gün Kesintisiz'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
+
+              {/* Başlangıç Tarihi */}
+              <Text style={styles.subLabel}>Başlangıç Tarihi (YYYY-AA-GG)</Text>
+              <TextInput
+                style={[styles.settingsInput, { color: '#fff', borderColor: theme.primary + '33' }]}
+                value={bcStartDate}
+                onChangeText={(txt) => setBcStartDate(txt)}
+                placeholder="Örn: 2026-06-25"
+                placeholderTextColor="#666"
+              />
+
+              {/* Hatırlatma Saati */}
+              <Text style={styles.subLabel}>Alarm Saati (SS:DD)</Text>
+              <TextInput
+                style={[styles.settingsInput, { color: '#fff', borderColor: theme.primary + '33' }]}
+                value={bcReminderTime}
+                onChangeText={(txt) => setBcReminderTime(txt)}
+                placeholder="Örn: 21:00"
+                placeholderTextColor="#666"
+              />
+
+              <TouchableOpacity
+                style={[styles.bcSaveBtn, { backgroundColor: theme.primary }]}
+                onPress={async () => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+                  const timeRegex = /^\d{2}:\d{2}$/;
+                  if (!dateRegex.test(bcStartDate)) {
+                    Alert.alert('Hata', 'Lütfen geçerli bir başlangıç tarihi girin (YYYY-AA-GG).');
+                    return;
+                  }
+                  if (!timeRegex.test(bcReminderTime)) {
+                    Alert.alert('Hata', 'Lütfen geçerli bir saat girin (SS:DD).');
+                    return;
+                  }
+                  await setContraceptiveConfig({
+                    startDate: bcStartDate,
+                    reminderTime: bcReminderTime,
+                  });
+                  await schedulePillReminder();
+                  Alert.alert('Başarılı', 'Doğum kontrol programınız ve alarmınız güncellendi.');
+                }}
+              >
+                <Text style={styles.bcSaveBtnText}>Değişiklikleri Kaydet</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* Bildirimler */}
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
+          <View style={styles.settingHeaderRow}>
+            <Bell size={18} color={theme.primary} />
             <Text style={styles.settingHeaderTitle}>Bildirim Ayarları</Text>
           </View>
 
@@ -552,16 +747,71 @@ export default function SettingsScreen() {
             <Switch
               value={notificationsEnabled}
               onValueChange={handleNotificationsToggle}
-              trackColor={{ false: '#3a3a40', true: '#FF2366' }}
+              trackColor={{ false: '#3a3a40', true: theme.primary }}
               thumbColor={notificationsEnabled ? '#fff' : '#888'}
             />
           </View>
+
+          {notificationsEnabled && (
+            <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)', paddingTop: 12 }}>
+              <Text style={styles.subLabel}>Bildirim Kamuflaj Modu (Gizlilik)</Text>
+              <Text style={[styles.settingDesc, { marginBottom: 12 }]}>
+                Kilit ekranında regl bildirimlerinizin nasıl görüneceğini seçerek gizliliğinizi koruyun.
+              </Text>
+              <View style={styles.pillSegmentRow}>
+                {(['standard', 'water', 'flower', 'custom'] as const).map((m) => (
+                  <TouchableOpacity
+                    key={m}
+                    style={[
+                      styles.pillSegmentBtn,
+                      discreetNotificationMode === m && { backgroundColor: theme.primary },
+                    ]}
+                    onPress={async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      await setDiscreetNotificationMode(m, localCustomText);
+                      await scheduleDailyReminders();
+                      await schedulePillReminder();
+                    }}
+                  >
+                    <Text style={[styles.pillSegmentText, discreetNotificationMode === m && { color: '#fff', fontWeight: 'bold' }]}>
+                      {m === 'standard' ? 'Standart' : m === 'water' ? 'Su' : m === 'flower' ? 'Çiçek' : 'Özel'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {discreetNotificationMode === 'custom' && (
+                <View style={{ marginTop: 10 }}>
+                  <Text style={styles.subLabel}>Kişiselleştirilmiş Bildirim Metni</Text>
+                  <TextInput
+                    style={[styles.settingsInput, { color: '#fff', borderColor: theme.primary + '33' }]}
+                    value={localCustomText}
+                    onChangeText={(txt) => setLocalCustomText(txt)}
+                    placeholder="Bildirimde yazmasını istediğiniz gizli mesaj..."
+                    placeholderTextColor="#666"
+                  />
+                  <TouchableOpacity
+                    style={[styles.bcSaveBtn, { backgroundColor: theme.primary, marginTop: 8 }]}
+                    onPress={async () => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      await setDiscreetNotificationMode('custom', localCustomText);
+                      await scheduleDailyReminders();
+                      await schedulePillReminder();
+                      Alert.alert('Başarılı', 'Özel gizli bildirim mesajınız kaydedildi.');
+                    }}
+                  >
+                    <Text style={styles.bcSaveBtnText}>Gizli Mesajı Kaydet</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
         {/* 3. Security (PIN & Biometrics) */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.settingHeaderRow}>
-            <Shield size={18} color="#FF2366" />
+            <Shield size={18} color={theme.primary} />
             <Text style={styles.settingHeaderTitle}>Güvenlik & Gizlilik</Text>
           </View>
 
@@ -574,7 +824,7 @@ export default function SettingsScreen() {
             <Switch
               value={pinEnabled}
               onValueChange={handlePinToggle}
-              trackColor={{ false: '#3a3a40', true: '#FF2366' }}
+              trackColor={{ false: '#3a3a40', true: theme.primary }}
               thumbColor={pinEnabled ? '#fff' : '#888'}
             />
           </View>
@@ -588,8 +838,8 @@ export default function SettingsScreen() {
               }}
               style={styles.changePinBtn}
             >
-              <Key size={16} color="#FF2366" style={{ marginRight: 6 }} />
-              <Text style={styles.changePinBtnText}>PIN Kodunu Değiştir</Text>
+              <Key size={16} color={theme.primary} style={{ marginRight: 6 }} />
+              <Text style={[styles.changePinBtnText, { color: theme.primary }]}>PIN Kodunu Değiştir</Text>
             </TouchableOpacity>
           )}
 
@@ -603,7 +853,7 @@ export default function SettingsScreen() {
               <Switch
                 value={biometricsEnabled}
                 onValueChange={handleBiometricsToggle}
-                trackColor={{ false: '#3a3a40', true: '#FF2366' }}
+                trackColor={{ false: '#3a3a40', true: theme.primary }}
                 thumbColor={biometricsEnabled ? '#fff' : '#888'}
               />
             </View>
@@ -611,9 +861,9 @@ export default function SettingsScreen() {
         </View>
 
         {/* 4. Backup & Sync Status (Firestore Sync) */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.settingHeaderRow}>
-            <CloudRain size={18} color="#FF2366" />
+            <CloudRain size={18} color={theme.primary} />
             <Text style={styles.settingHeaderTitle}>Yedekleme & Eşitleme</Text>
           </View>
 
@@ -627,13 +877,13 @@ export default function SettingsScreen() {
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TouchableOpacity
                 onPress={handleSyncData}
-                style={[styles.syncBtn, { flex: 1, alignItems: 'center' }]}
+                style={[styles.syncBtn, { flex: 1, alignItems: 'center', backgroundColor: theme.primary + '14', borderColor: theme.primary + '26' }]}
                 disabled={syncing || restoring}
               >
                 {syncing ? (
-                  <ActivityIndicator color="#FF2366" size="small" />
+                  <ActivityIndicator color={theme.primary} size="small" />
                 ) : (
-                  <Text style={styles.syncBtnText}>Şimdi Eşitle</Text>
+                  <Text style={[styles.syncBtnText, { color: theme.primary }]}>Şimdi Eşitle</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
@@ -724,7 +974,7 @@ export default function SettingsScreen() {
       <Modal visible={profileModalVisible} transparent animationType="fade" onRequestClose={() => setProfileModalVisible(false)}>
         <View style={styles.pinModalBg}>
           <View style={styles.pinModalBox}>
-            <Text style={styles.pinModalTitle}>Profili Düzenle</Text>
+            <Text style={[styles.pinModalTitle, { color: theme.primary }]}>Profili Düzenle</Text>
             <Text style={styles.pinModalSub}>Kişisel ve döngü tahmin ayarlarınızı özelleştirin.</Text>
             
             <View style={styles.pinModalInputGroup}>
@@ -782,7 +1032,7 @@ export default function SettingsScreen() {
                 <Text style={styles.pinModalBtnText}>İptal</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.pinModalBtn, { backgroundColor: '#FF2366' }]}
+                style={[styles.pinModalBtn, { backgroundColor: theme.primary }]}
                 onPress={handleSaveProfile}
                 disabled={profileSaving}
               >
@@ -847,7 +1097,7 @@ export default function SettingsScreen() {
                 <Text style={styles.pinModalBtnText}>İptal</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.pinModalBtn, { backgroundColor: '#FF2366' }]}
+                style={[styles.pinModalBtn, { backgroundColor: theme.primary }]}
                 onPress={async () => {
                   const numRegex = /^\d{4}$/;
                   if (!numRegex.test(newPinInput)) {
@@ -919,7 +1169,7 @@ export default function SettingsScreen() {
                 <Text style={styles.adminModalBtnText}>İptal</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.adminModalBtn, { backgroundColor: '#FF2366' }]}
+                style={[styles.adminModalBtn, { backgroundColor: theme.primary }]}
                 onPress={() => {
                   const hashedInput = CryptoJS.SHA256(adminPasscode).toString();
                   if (hashedInput === '6e753a6b0a37cd1032c991ba167cee596db9adca33162ea9e48a0ba86c4daed3') {
@@ -955,7 +1205,8 @@ export default function SettingsScreen() {
         onConfirm={alertConfig.onConfirm}
         onCancel={alertConfig.onCancel}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
@@ -1318,6 +1569,88 @@ const styles = StyleSheet.create({
   pinModalBtnText: {
     color: '#fff',
     fontSize: 14,
+    fontWeight: 'bold',
+  },
+  themeSelectorContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  themeOptionCircleWrapper: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  themeOptionCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  themeOptionCircleActive: {
+    transform: [{ scale: 1.1 }],
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  themeOptionText: {
+    fontSize: 9,
+    color: '#888',
+    marginTop: 6,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  subLabel: {
+    color: '#aaa',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  pillSegmentRow: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 12,
+    padding: 3,
+    gap: 4,
+    marginBottom: 8,
+  },
+  pillSegmentBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pillSegmentText: {
+    color: '#888',
+    fontSize: 11,
+  },
+  settingsInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  bcSaveBtn: {
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  bcSaveBtnText: {
+    color: '#fff',
+    fontSize: 13,
     fontWeight: 'bold',
   },
 });

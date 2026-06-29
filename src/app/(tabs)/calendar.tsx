@@ -218,7 +218,7 @@ export default function CalendarScreen() {
 
   // Styles days depending on phase
   const getDayStatus = (dateStr: string) => {
-    if (!predictions) return { isPeriod: false, isFertile: false, isOvulation: false, hasLog: false };
+    if (!predictions) return { isPeriod: false, isFertile: false, isOvulation: false, hasLog: false, hasPill: false, hasIntimacy: false, hasNotes: false, hasSymptoms: false };
 
     const todayVal = parseUtcDate(dateStr);
     
@@ -253,13 +253,21 @@ export default function CalendarScreen() {
     });
 
     const log = logs[dateStr];
-    const hasLog = !!log && ((log.moods && log.moods.length > 0) || (log.symptoms && log.symptoms.length > 0));
+    const hasLog = !!log && ((log.moods && log.moods.length > 0) || (log.symptoms && log.symptoms.length > 0) || !!log.notes);
+    const hasPill = !!(log && log.symptoms && log.symptoms.includes('Doğum Kontrol Hapı'));
+    const hasIntimacy = !!(log && log.symptoms && (log.symptoms.includes('Cinsel İlişki') || log.symptoms.includes('Korunmasız İlişki') || log.symptoms.includes('Orgazm')));
+    const hasNotes = !!(log && log.notes && log.notes.trim().length > 0);
+    const hasSymptoms = !!(log && log.symptoms && log.symptoms.filter(s => s !== 'Doğum Kontrol Hapı' && s !== 'Cinsel İlişki' && s !== 'Korunmasız İlişki' && s !== 'Orgazm').length > 0);
 
     return {
       isPeriod: isLoggedPeriod || isPredPeriod,
       isFertile,
       isOvulation,
       hasLog,
+      hasPill,
+      hasIntimacy,
+      hasNotes,
+      hasSymptoms,
     };
   };
 
@@ -395,8 +403,16 @@ export default function CalendarScreen() {
                   <Text style={[textStyle, isSelected && styles.dayTextSelected]}>
                     {cell.dayNum}
                   </Text>
-                  {status.hasLog && !status.isPeriod && (
-                    <View style={styles.logDot} />
+                  {status.hasLog && (
+                    <View style={styles.badgeRow}>
+                      {status.hasIntimacy && <Text style={styles.microBadge}>💖</Text>}
+                      {status.hasPill && <Text style={styles.microBadge}>💊</Text>}
+                      {status.hasNotes && <Text style={styles.microBadge}>📝</Text>}
+                      {status.hasSymptoms && <Text style={styles.microBadge}>🌸</Text>}
+                      {!status.hasIntimacy && !status.hasPill && !status.hasNotes && !status.hasSymptoms && (
+                        <View style={styles.logDot} />
+                      )}
+                    </View>
                   )}
                 </TouchableOpacity>
               );
@@ -1080,5 +1096,18 @@ const styles = StyleSheet.create({
     color: '#fff',
     paddingHorizontal: 10,
     fontSize: 12,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 1,
+    marginTop: 2,
+    height: 10,
+    width: '100%',
+  },
+  microBadge: {
+    fontSize: 7,
+    lineHeight: 8,
   },
 });

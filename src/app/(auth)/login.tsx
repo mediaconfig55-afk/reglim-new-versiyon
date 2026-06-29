@@ -16,7 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useAppStore } from '../../store/store';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Heart, Mail, Lock, User, Sparkles, Check } from 'lucide-react-native';
+import { Heart, Mail, Lock, User, Sparkles, Check, CloudDownload } from 'lucide-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
@@ -45,6 +45,96 @@ export default function LoginScreen() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successUserName, setSuccessUserName] = useState('');
   const [pendingSessionUser, setPendingSessionUser] = useState<any>(null);
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restoreData, setRestoreData] = useState<{
+    fbUser: any;
+    cloudProfile: any;
+    isGoogle: boolean;
+    name?: string;
+  } | null>(null);
+  const [restoring, setRestoring] = useState(false);
+
+  const handleRestoreCloud = async () => {
+    if (!restoreData) return;
+    setRestoring(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const { fbUser, cloudProfile, isGoogle } = restoreData;
+      await restoreCyclesAndLogsFromCloud(fbUser.uid);
+
+      const sessionUser = {
+        uid: fbUser.uid,
+        email: fbUser.email,
+        displayName: cloudProfile.displayName || fbUser.displayName || (isGoogle ? 'Google Kullanıcısı' : 'Kullanıcı'),
+        birthDate: cloudProfile.birthDate || undefined,
+        avgCycleLength: cloudProfile.avgCycleLength || undefined,
+        avgPeriodLength: cloudProfile.avgPeriodLength || undefined,
+        isAnonymous: false,
+      };
+
+      await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
+      await setOnboarded(true); // Skip onboarding since user is restoring data
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      setShowRestoreModal(false);
+      
+      if (isGoogle) {
+        setPendingSessionUser(sessionUser);
+        setSuccessUserName(sessionUser.displayName);
+        setShowSuccessModal(true);
+      } else {
+        setUser(sessionUser);
+      }
+    } catch (err) {
+      console.error('Restore error:', err);
+      setError('Veriler geri yüklenirken bir hata oluştu.');
+      setShowRestoreModal(false);
+    } finally {
+      setRestoring(false);
+      setRestoreData(null);
+    }
+  };
+
+  const handleStartFresh = async () => {
+    if (!restoreData) return;
+    setRestoring(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      const { fbUser, name, isGoogle } = restoreData;
+      await clearDatabase();
+
+      const sessionUser = {
+        uid: fbUser.uid,
+        email: fbUser.email,
+        displayName: name || fbUser.displayName || (isGoogle ? 'Google Kullanıcısı' : 'Kullanıcı'),
+        isAnonymous: false,
+      };
+
+      await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
+      await setOnboarded(false); // Do not skip onboarding
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      setShowRestoreModal(false);
+
+      if (isGoogle) {
+        setPendingSessionUser(sessionUser);
+        setSuccessUserName(sessionUser.displayName);
+        setShowSuccessModal(true);
+      } else {
+        setUser(sessionUser);
+        router.replace('/(onboarding)/intro');
+      }
+    } catch (err) {
+      console.error('Start fresh error:', err);
+      setError('Yeni profil oluşturulurken bir hata oluştu.');
+      setShowRestoreModal(false);
+    } finally {
+      setRestoring(false);
+      setRestoreData(null);
+    }
+  };
 
   const handleSuccessModalClose = () => {
     setShowSuccessModal(false);
@@ -100,56 +190,13 @@ export default function LoginScreen() {
       }
 
       if (cloudProfile) {
-        Alert.alert(
-          'Mevcut Verileriniz Bulundu! 🌟',
-          `Bulutta kayıtlı yedekleriniz bulundu (${cloudProfile.displayName || 'Kullanıcı'}). Eski bilgilerinizi ve adet geçmişinizi geri yüklemek ister misiniz?`,
-          [
-            {
-              text: 'Yeni Başla',
-              style: 'cancel',
-              onPress: async () => {
-                setLoading(true);
-                await clearDatabase();
-                const sessionUser = {
-                  uid: fbUser.uid,
-                  email: fbUser.email,
-                  displayName: name || fbUser.displayName || 'Kullanıcı',
-                  isAnonymous: false,
-                };
-                await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
-                setUser(sessionUser);
-                await setOnboarded(false);
-                setLoading(false);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                router.replace('/(onboarding)/intro');
-              }
-            },
-            {
-              text: 'Geri Yükle ve Başla',
-              style: 'default',
-              onPress: async () => {
-                setLoading(true);
-                await restoreCyclesAndLogsFromCloud(fbUser.uid);
-                const sessionUser = {
-                  uid: fbUser.uid,
-                  email: fbUser.email,
-                  displayName: cloudProfile.displayName || fbUser.displayName || 'Kullanıcı',
-                  birthDate: cloudProfile.birthDate || undefined,
-                  avgCycleLength: cloudProfile.avgCycleLength || undefined,
-                  avgPeriodLength: cloudProfile.avgPeriodLength || undefined,
-                  isAnonymous: false,
-                };
-                await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
-                setUser(sessionUser);
-                await setOnboarded(true); // Skip onboarding
-                setLoading(false);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                router.replace('/(tabs)');
-              }
-            }
-          ],
-          { cancelable: false }
-        );
+        setRestoreData({
+          fbUser,
+          cloudProfile,
+          isGoogle: false,
+          name: name
+        });
+        setShowRestoreModal(true);
       } else {
         const sessionUser = {
           uid: fbUser.uid,
@@ -241,57 +288,12 @@ export default function LoginScreen() {
       const cloudProfile = await restoreUserProfile(fbUser.uid);
 
       if (cloudProfile) {
-        Alert.alert(
-          'Mevcut Verileriniz Bulundu! 🌟',
-          `Bulutta kayıtlı yedekleriniz bulundu (${cloudProfile.displayName || 'Google Kullanıcısı'}). Eski bilgilerinizi ve adet geçmişinizi geri yüklemek ister misiniz?`,
-          [
-            {
-              text: 'Yeni Başla',
-              style: 'cancel',
-              onPress: async () => {
-                setLoading(true);
-                await clearDatabase();
-                const sessionUser = {
-                  uid: fbUser.uid,
-                  email: fbUser.email,
-                  displayName: fbUser.displayName || 'Google Kullanıcısı',
-                  isAnonymous: false,
-                };
-                await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
-                setPendingSessionUser(sessionUser);
-                setSuccessUserName(sessionUser.displayName);
-                await setOnboarded(false);
-                setShowSuccessModal(true);
-                setLoading(false);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              }
-            },
-            {
-              text: 'Geri Yükle ve Başla',
-              style: 'default',
-              onPress: async () => {
-                setLoading(true);
-                await restoreCyclesAndLogsFromCloud(fbUser.uid);
-                const mergedSessionUser = {
-                  ...sessionUser,
-                  displayName: cloudProfile.displayName || fbUser.displayName || sessionUser.displayName,
-                  birthDate: cloudProfile.birthDate || undefined,
-                  avgCycleLength: cloudProfile.avgCycleLength || undefined,
-                  avgPeriodLength: cloudProfile.avgPeriodLength || undefined,
-                  isAnonymous: false,
-                };
-                await AsyncStorage.setItem('user_session', JSON.stringify(mergedSessionUser));
-                setPendingSessionUser(mergedSessionUser);
-                setSuccessUserName(mergedSessionUser.displayName);
-                await setOnboarded(true); // Mark onboarded
-                setShowSuccessModal(true);
-                setLoading(false);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              }
-            }
-          ],
-          { cancelable: false }
-        );
+        setRestoreData({
+          fbUser,
+          cloudProfile,
+          isGoogle: true
+        });
+        setShowRestoreModal(true);
       } else {
         const sessionUser = {
           uid: fbUser.uid,
@@ -530,6 +532,72 @@ export default function LoginScreen() {
               >
                 <Text style={styles.modalButtonText}>Hemen Başla</Text>
               </TouchableOpacity>
+            </LinearGradient>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Restore Modal */}
+      <Modal
+        visible={showRestoreModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          if (!restoring) {
+            setShowRestoreModal(false);
+            setRestoreData(null);
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <LinearGradient
+              colors={['#2c1622', '#181216']}
+              style={styles.modalGradient}
+            >
+              {restoring ? (
+                <View style={styles.restoringContainer}>
+                  <ActivityIndicator size="large" color="#FF2366" style={{ marginBottom: 20 }} />
+                  <Text style={styles.modalTitle}>Yükleniyor...</Text>
+                  <Text style={styles.modalMessage}>
+                    Verileriniz geri yükleniyor, lütfen bekleyin.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {/* Glowing Cloud Download Icon */}
+                  <View style={styles.successIconWrapper}>
+                    <View style={styles.successIconOuterRing}>
+                      <View style={[styles.successIconInnerRing, { backgroundColor: '#FF2366' }]}>
+                        <CloudDownload size={36} color="#fff" strokeWidth={2.5} />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Title & Description */}
+                  <Text style={styles.modalTitle}>Mevcut Verileriniz Bulundu! 🌟</Text>
+                  <Text style={styles.modalMessage}>
+                    Bulutta kayıtlı yedekleriniz bulundu ({restoreData?.cloudProfile?.displayName || 'Kullanıcı'}). Eski bilgilerinizi ve adet geçmişinizi geri yüklemek ister misiniz?
+                  </Text>
+
+                  {/* Action Buttons */}
+                  <TouchableOpacity
+                    onPress={handleRestoreCloud}
+                    style={styles.modalButton}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.modalButtonText}>Geri Yükle ve Başla</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={handleStartFresh}
+                    style={[styles.modalButton, styles.modalButtonSecondary]}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.modalButtonText, styles.modalButtonTextSecondary]}>Yeni Başla (Verileri Sil)</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </LinearGradient>
           </View>
         </View>
@@ -791,5 +859,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: 'bold',
     letterSpacing: 0.5,
+  },
+  modalButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 35, 102, 0.4)',
+    marginTop: 12,
+    shadowColor: 'transparent',
+    elevation: 0,
+  },
+  modalButtonTextSecondary: {
+    color: '#FF2366',
+  },
+  restoringContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
   },
 });

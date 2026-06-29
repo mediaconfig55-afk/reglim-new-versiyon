@@ -29,6 +29,7 @@ import { generateAIInsights, getDailyTip, AIInsight } from '../../utils/aiAnalyz
 import { getUpcomingNotifications, scheduleCycleAlert, scheduleOvulationAlert, cancelAllCycleAlerts } from '../../services/notifications';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import { getLocalDateString } from '../../utils/date';
+import { useTheme } from '../../constants/theme';
 import {
   Flame,
   Droplet,
@@ -47,7 +48,8 @@ import * as Haptics from 'expo-haptics';
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { isPregnancyMode, user } = useAppStore();
+  const theme = useTheme();
+  const { isPregnancyMode, user, contraceptiveConfig } = useAppStore();
   const insets = useSafeAreaInsets();
 
   const [loading, setLoading]       = useState(true);
@@ -59,6 +61,7 @@ export default function DashboardScreen() {
   const [aiInsights, setAiInsights]     = useState<AIInsight[]>([]);
   const [upcomingAlerts, setUpcomingAlerts] = useState<any[]>([]);
   const [dailyTipText, setDailyTipText] = useState('');
+  const [recentLogs, setRecentLogs] = useState<any[]>([]);
 
   // Period tracking
   const [activeCycle, setActiveCycle]         = useState<any>(null);
@@ -129,6 +132,7 @@ export default function DashboardScreen() {
         getLocalDateString(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)),
         todayStr
       );
+      setRecentLogs(allLogs);
       setAiInsights(generateAIInsights(allLogs, dbCycles));
 
       // Notifications
@@ -315,11 +319,90 @@ export default function DashboardScreen() {
   const getPeriodNotes = () =>
     periodLogs.filter(l => l.notes && l.notes.trim().length > 0);
 
+  const getPillPackPills = () => {
+    if (!contraceptiveConfig.enabled || !contraceptiveConfig.startDate) return [];
+    
+    try {
+      const start = new Date(contraceptiveConfig.startDate + 'T00:00:00');
+      const today = new Date(todayStr + 'T00:00:00');
+      const diffTime = today.getTime() - start.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays < 0) return []; // Future start date
+      
+      const pillsCount = contraceptiveConfig.pillsInPack; // 21 or 28
+      const totalCycleDays = contraceptiveConfig.packModel === '21_7' ? 28 : pillsCount;
+      
+      const currentPackNumber = Math.floor(diffDays / totalCycleDays);
+      const currentPackStart = new Date(start.getTime());
+      currentPackStart.setDate(currentPackStart.getDate() + currentPackNumber * totalCycleDays);
+      
+      const pills = [];
+      for (let i = 1; i <= pillsCount; i++) {
+        const pillDate = new Date(currentPackStart.getTime());
+        pillDate.setDate(pillDate.getDate() + (i - 1));
+        
+        const pillDateStr = pillDate.toISOString().split('T')[0];
+        const isToday = pillDateStr === todayStr;
+        const isFuture = pillDate.getTime() > today.getTime();
+        
+        // Find log for this date in recentLogs
+        const log = recentLogs.find(l => l.date === pillDateStr);
+        const isTaken = !!(log && log.symptoms && log.symptoms.includes('Doğum Kontrol Hapı'));
+        
+        pills.push({
+          index: i,
+          dateStr: pillDateStr,
+          isToday,
+          isFuture,
+          isTaken,
+        });
+      }
+      return pills;
+    } catch (e) {
+      console.error('Error generating contraceptive pack layout:', e);
+      return [];
+    }
+  };
+
+  const handleToggleTodayPill = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      let currentSymptoms = todayLog?.symptoms ? [...todayLog.symptoms] : [];
+      const hasPill = currentSymptoms.includes('Doğum Kontrol Hapı');
+      
+      if (hasPill) {
+        currentSymptoms = currentSymptoms.filter(s => s !== 'Doğum Kontrol Hapı');
+      } else {
+        currentSymptoms.push('Doğum Kontrol Hapı');
+      }
+      
+      const updatedLog = {
+        ...todayLog,
+        date: todayStr,
+        symptoms: currentSymptoms,
+      };
+      
+      await saveDailyLog(updatedLog);
+      setTodayLog(updatedLog);
+      
+      // Update recentLogs list for the pack visual grid representation
+      setRecentLogs(prev => {
+        const filtered = prev.filter(l => l.date !== todayStr);
+        return [...filtered, updatedLog];
+      });
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      console.error('Failed to toggle today pill status:', e);
+    }
+  };
+
   // ── Loading state ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF2366" />
+        <ActivityIndicator size="large" color={theme.primary} />
         <Text style={styles.loadingText}>Yükleniyor...</Text>
       </View>
     );
@@ -327,13 +410,14 @@ export default function DashboardScreen() {
 
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FF2366" />
-        }
-      >
+    <ExpoLinearGradient colors={theme.bgGradient} style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.primary} />
+          }
+        >
         {/* Header */}
         <View style={styles.header}>
           <View>
@@ -390,10 +474,10 @@ export default function DashboardScreen() {
             <ExpoLinearGradient
               colors={
                 activeCycle
-                  ? ['rgba(255, 35, 102, 0.35)', 'rgba(180, 10, 50, 0.65)']
-                  : ['rgba(255, 35, 102, 0.08)', 'rgba(30, 30, 35, 0.6)']
+                  ? [theme.primary + '59', theme.primary + 'A6']
+                  : [theme.primary + '14', 'rgba(30, 30, 35, 0.6)']
               }
-              style={[styles.wheelBorder, activeCycle && styles.wheelBorderActive]}
+              style={[styles.wheelBorder, { borderColor: theme.primary + '33' }, activeCycle && [styles.wheelBorderActive, { borderColor: theme.primary + 'C0' }]]}
             >
               <View style={[styles.wheelInner, activeCycle && styles.wheelInnerActive]}>
                 {activeCycle ? (
@@ -437,7 +521,7 @@ export default function DashboardScreen() {
               ) : (
                 <TouchableOpacity
                   onPress={handleStartPeriod}
-                  style={[styles.logTodayBtn, { backgroundColor: '#FF2366' }]}
+                  style={[styles.logTodayBtn, { backgroundColor: theme.primary }]}
                 >
                   <Droplet size={16} color="#FFF" style={{ marginRight: 5 }} />
                   <Text style={styles.logTodayBtnText}>Regli Başlat</Text>
@@ -474,7 +558,7 @@ export default function DashboardScreen() {
                 </View>
               ))}
               {todayLog.symptoms.map((s: string) => (
-                <View key={s} style={[styles.logTag, styles.symptomTag]}>
+                <View key={s} style={[styles.logTag, styles.symptomTag, { backgroundColor: theme.primary + '14', borderColor: theme.primary + '33' }]}>
                   <Text style={styles.logTagText}>🌸 {s}</Text>
                 </View>
               ))}
@@ -577,16 +661,110 @@ export default function DashboardScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Doğum Kontrol Takip Widget'ı */}
+        {contraceptiveConfig.enabled && contraceptiveConfig.startDate && (
+          <View style={[styles.pillCard, { borderColor: theme.primary + '22' }]}>
+            <View style={styles.pillCardHeader}>
+              <View style={styles.pillCardHeaderLeft}>
+                <Activity size={18} color={theme.primary} />
+                <Text style={styles.pillCardHeaderTitle}>
+                  {contraceptiveConfig.type === 'pill' ? 'Doğum Kontrol Hapı' : 
+                   contraceptiveConfig.type === 'ring' ? 'Kontraseptif Halka' : 
+                   contraceptiveConfig.type === 'patch' ? 'Kontraseptif Plaster' : 'Doğum Kontrol İğnesi'}
+                </Text>
+              </View>
+              <Text style={[styles.pillCardTime, { color: theme.primary }]}>
+                {contraceptiveConfig.reminderTime}
+              </Text>
+            </View>
+
+            {/* Grid of Pills */}
+            {contraceptiveConfig.type === 'pill' && (
+              <View style={styles.pillGrid}>
+                {getPillPackPills().map((pill) => {
+                  let circleStyle: any[] = [styles.pillCircle];
+                  let textStyle: any[] = [styles.pillCircleText];
+                  
+                  if (pill.isTaken) {
+                    circleStyle.push({ backgroundColor: theme.primary, borderColor: theme.primary });
+                    textStyle.push({ color: '#fff', fontWeight: 'bold' });
+                  } else if (pill.isToday) {
+                    circleStyle.push({ borderColor: theme.primary, borderStyle: 'dashed', borderWidth: 2 });
+                    textStyle.push({ color: theme.primary, fontWeight: 'bold' });
+                  } else if (pill.isFuture) {
+                    circleStyle.push({ borderColor: 'rgba(255, 255, 255, 0.05)' });
+                    textStyle.push({ color: '#444' });
+                  } else {
+                    // Missed pill (past and not taken)
+                    circleStyle.push({ borderColor: '#ff4d6d44', backgroundColor: 'rgba(255, 77, 109, 0.04)' });
+                    textStyle.push({ color: '#ff4d6d' });
+                  }
+                  
+                  return (
+                    <View key={pill.index} style={circleStyle}>
+                      <Text style={textStyle}>{pill.index}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Actions & Info Footer */}
+            <View style={styles.pillCardFooter}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.pillCardFooterInfo}>
+                  Paket Durumu:{' '}
+                  {(() => {
+                    const pills = getPillPackPills();
+                    const takenCount = pills.filter(p => p.isTaken).length;
+                    const totalPills = contraceptiveConfig.pillsInPack;
+                    return `${takenCount} / ${totalPills} Alındı`;
+                  })()}
+                </Text>
+                {contraceptiveConfig.packModel === '21_7' && contraceptiveConfig.type === 'pill' && (
+                  <Text style={styles.pillCardFooterSub}>
+                    Döngü Modeli: 21 Gün Aktif + 7 Gün Ara
+                  </Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={[
+                  styles.pillActionBtn,
+                  todayLog?.symptoms?.includes('Doğum Kontrol Hapı')
+                    ? { backgroundColor: 'rgba(6, 214, 160, 0.08)', borderColor: 'rgba(6, 214, 160, 0.2)', borderWidth: 1 }
+                    : { backgroundColor: theme.primary },
+                ]}
+                onPress={handleToggleTodayPill}
+              >
+                <Text
+                  style={[
+                    styles.pillActionBtnText,
+                    todayLog?.symptoms?.includes('Doğum Kontrol Hapı')
+                      ? { color: '#06D6A0' }
+                      : { color: '#fff' },
+                  ]}
+                >
+                  {todayLog?.symptoms?.includes('Doğum Kontrol Hapı')
+                    ? 'Hap Alındı ✓'
+                    : 'Hapı Al 💊'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Daily tip */}
         {dailyTipText ? (
           <View style={styles.tipCard}>
             <ExpoLinearGradient
-              colors={['rgba(255,35,102,0.06)', 'rgba(255,35,102,0.02)']}
-              style={styles.tipGradient}
+              colors={[theme.primary + '10', theme.primary + '05']}
+              style={[styles.tipGradient, { borderColor: theme.primary + '1F' }]}
             >
               <View style={styles.tipHeader}>
-                <Flame size={16} color="#FF2366" />
-                <Text style={styles.tipHeaderTitle}>GÜNÜN SAĞLIK TAVSİYESİ</Text>
+                <Flame size={16} color={theme.primary} />
+                <Text style={[styles.tipHeaderTitle, { color: theme.primary }]}>GÜNÜN SAĞLIK TAVSİYESİ</Text>
               </View>
               <Text style={styles.tipBody}>{dailyTipText}</Text>
             </ExpoLinearGradient>
@@ -604,7 +782,7 @@ export default function DashboardScreen() {
           {aiInsights.map((insight, idx) => (
             <View
               key={idx}
-              style={[styles.insightCard, (styles as any)[`insight_${insight.type}`]]}
+              style={[styles.insightCard, { borderColor: theme.primary + '26' }, (styles as any)[`insight_${insight.type}`]]}
             >
               <Text style={styles.insightTitle}>{insight.title}</Text>
               <Text style={styles.insightDesc}>{insight.description}</Text>
@@ -616,7 +794,19 @@ export default function DashboardScreen() {
         {upcomingAlerts.length > 0 && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Bell size={20} color="#FF2366" />
+              <Brain size={20} color={theme.primary} />
+              <Text style={[styles.sectionTitle, { marginLeft: 6, marginBottom: 0 }]}>
+                Yapay Zeka Analizleri
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Upcoming alerts list */}
+        {upcomingAlerts.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Bell size={20} color={theme.primary} />
               <Text style={[styles.sectionTitle, { marginLeft: 6, marginBottom: 0 }]}>
                 Yaklaşan Hatırlatıcılar
               </Text>
@@ -624,7 +814,7 @@ export default function DashboardScreen() {
             <View style={styles.alertsContainer}>
               {upcomingAlerts.map((alert, idx) => (
                 <View key={idx} style={styles.alertRow}>
-                  <View style={styles.alertCircle} />
+                  <View style={[styles.alertCircle, { backgroundColor: theme.primary }]} />
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <Text style={styles.alertTitle}>{alert.title}</Text>
                     <Text style={styles.alertTrigger}>{alert.triggerTime}</Text>
@@ -662,8 +852,8 @@ export default function DashboardScreen() {
             </View>
 
             {/* Duration badge */}
-            <View style={styles.summaryDurationCard}>
-              <Text style={styles.summaryDurationNum}>{periodDuration}</Text>
+            <View style={[styles.summaryDurationCard, { borderColor: theme.primary + '33' }]}>
+              <Text style={[styles.summaryDurationNum, { color: theme.primary }]}>{periodDuration}</Text>
               <Text style={styles.summaryDurationLabel}>Gün Sürdü</Text>
             </View>
 
@@ -689,7 +879,7 @@ export default function DashboardScreen() {
                   <Text style={styles.summarySectionTitle}>🌸 Belirtiler</Text>
                   <View style={styles.summaryTags}>
                     {getAllSymptoms().map(([sym, count]) => (
-                      <View key={sym} style={styles.summarySymptomTag}>
+                      <View key={sym} style={[styles.summarySymptomTag, { backgroundColor: theme.primary + '14', borderColor: theme.primary + '33' }]}>
                         <Text style={styles.summaryTagText}>{sym}</Text>
                         <Text style={styles.summaryTagCount}> ×{count}</Text>
                       </View>
@@ -704,7 +894,7 @@ export default function DashboardScreen() {
                   <Text style={styles.summarySectionTitle}>📝 Notlarınız</Text>
                   {getPeriodNotes().map((log, idx) => (
                     <View key={idx} style={styles.summaryNoteRow}>
-                      <Text style={styles.summaryNoteDate}>
+                      <Text style={[styles.summaryNoteDate, { color: theme.primary }]}>
                         {new Date(log.date + 'T12:00:00').toLocaleDateString('tr-TR', {
                           day: 'numeric', month: 'short',
                         })}
@@ -726,7 +916,7 @@ export default function DashboardScreen() {
             </ScrollView>
 
             <TouchableOpacity
-              style={styles.modalDoneBtn}
+              style={[styles.modalDoneBtn, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
               onPress={() => setShowSummaryModal(false)}
             >
               <Text style={styles.modalDoneBtnText}>Harika! Kapat 🌸</Text>
@@ -743,9 +933,9 @@ export default function DashboardScreen() {
         onRequestClose={() => setConfirmModal(prev => ({ ...prev, visible: false }))}
       >
         <View style={styles.confirmModalOverlay}>
-          <View style={styles.confirmModalCard}>
+          <View style={[styles.confirmModalCard, { borderColor: theme.primary + '40' }]}>
             <ExpoLinearGradient
-              colors={['#2c1622', '#181216']}
+              colors={theme.bgGradient}
               style={styles.confirmModalGradient}
             >
               {/* Emoji header circle */}
@@ -769,7 +959,7 @@ export default function DashboardScreen() {
 
                 <TouchableOpacity
                   onPress={confirmModal.onConfirm}
-                  style={[styles.confirmBtn, styles.confirmOkBtn]}
+                  style={[styles.confirmBtn, styles.confirmOkBtn, { backgroundColor: theme.primary }]}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.confirmOkText}>{confirmModal.confirmText}</Text>
@@ -779,7 +969,8 @@ export default function DashboardScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ExpoLinearGradient>
   );
 }
 
@@ -1105,6 +1296,83 @@ const styles = StyleSheet.create({
   confirmOkText: {
     color: '#fff',
     fontSize: 14,
+    fontWeight: 'bold',
+  },
+  pillCard: {
+    backgroundColor: '#18181c',
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 20,
+  },
+  pillCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    paddingBottom: 12,
+    marginBottom: 14,
+  },
+  pillCardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pillCardHeaderTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 8,
+    textTransform: 'uppercase',
+  },
+  pillCardTime: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  pillGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'flex-start',
+    marginBottom: 16,
+  },
+  pillCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pillCircleText: {
+    fontSize: 11,
+    color: '#888',
+  },
+  pillCardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  pillCardFooterInfo: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  pillCardFooterSub: {
+    color: '#666',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  pillActionBtn: {
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pillActionBtnText: {
+    fontSize: 12,
     fontWeight: 'bold',
   },
 });

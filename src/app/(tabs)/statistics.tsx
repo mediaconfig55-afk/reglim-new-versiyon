@@ -17,10 +17,13 @@ import { Svg, Rect, Line, Circle, Polyline, Path, Defs, LinearGradient, Stop, Te
 import { BarChart3, FileDown, Activity, Sparkles, TrendingUp, Info } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { getLocalDateString } from '../../utils/date';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+import { useTheme } from '../../constants/theme';
 
 export default function StatisticsScreen() {
   const { user } = useAppStore();
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [cycles, setCycles] = useState<Cycle[]>([]);
@@ -105,8 +108,8 @@ export default function StatisticsScreen() {
         <Svg width="100%" height={chartHeight} viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
           <Defs>
             <LinearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0%" stopColor="#FF2366" stopOpacity="1" />
-              <Stop offset="100%" stopColor="#FF5C8A" stopOpacity="0.4" />
+              <Stop offset="0%" stopColor={theme.primary} stopOpacity="1" />
+              <Stop offset="100%" stopColor={theme.primary} stopOpacity="0.3" />
             </LinearGradient>
           </Defs>
           {/* Grid lines */}
@@ -263,14 +266,15 @@ export default function StatisticsScreen() {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#FF2366" />
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <ExpoLinearGradient colors={theme.bgGradient} style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: 'transparent' }]}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
         
         {/* Header */}
         <View style={styles.header}>
@@ -285,16 +289,16 @@ export default function StatisticsScreen() {
         ) : null}
 
         {/* Doctor PDF Report Card */}
-        <View style={styles.pdfCard}>
+        <View style={[styles.pdfCard, { backgroundColor: theme.primary + '14', borderColor: theme.primary + '33' }]}>
           <View style={{ flex: 1, paddingRight: 10 }}>
-            <Text style={styles.pdfCardTitle}>Hekim Paylaşım Raporu</Text>
+            <Text style={[styles.pdfCardTitle, { color: theme.primary }]}>Hekim Paylaşım Raporu</Text>
             <Text style={styles.pdfCardDesc}>
               Doktorunuzla paylaşabileceğiniz, detaylı döngü geçmişi, hayati bulgular ve semptom frekanslarını içeren doğrulanabilir PDF raporu oluşturun.
             </Text>
           </View>
           <TouchableOpacity
             onPress={handleExportPDF}
-            style={styles.pdfBtn}
+            style={[styles.pdfBtn, { backgroundColor: theme.primary }]}
             disabled={pdfGenerating}
           >
             {pdfGenerating ? (
@@ -309,27 +313,27 @@ export default function StatisticsScreen() {
         </View>
 
         {/* 1. Cycle Length chart card */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.cardHeader}>
-            <BarChart3 size={18} color="#FF2366" />
+            <BarChart3 size={18} color={theme.primary} />
             <Text style={styles.cardTitle}>Döngü Süresi Dağılımı</Text>
           </View>
           {renderCycleLengthsChart()}
         </View>
 
-        {/* 2. Weight Trend chart card */}
-        <View style={styles.card}>
+        {/* 2. Weight chart card */}
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.cardHeader}>
-            <TrendingUp size={18} color="#06D6A0" />
+            <Activity size={18} color="#00B4D8" />
             <Text style={styles.cardTitle}>Ağırlık Değişim Grafiği</Text>
           </View>
           {renderWeightTrendChart()}
         </View>
 
-        {/* 3. Symptom frequencies panel */}
-        <View style={styles.card}>
+        {/* 3. Symptom Frequency card */}
+        <View style={[styles.card, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.cardHeader}>
-            <Activity size={18} color="#9B5DE5" />
+            <Activity size={18} color="#FFB703" />
             <Text style={styles.cardTitle}>En Sık Yaşanan Belirtiler</Text>
           </View>
 
@@ -340,12 +344,12 @@ export default function StatisticsScreen() {
                 return (
                   <View key={name} style={styles.symptomRow}>
                     <View style={styles.symptomLabelContainer}>
-                      <Text style={styles.symptomName}>🌸 {name}</Text>
-                      <Text style={styles.symptomCount}>{count} Kez</Text>
+                      <Text style={[styles.symptomName, { color: theme.text }]}>🌸 {name}</Text>
+                      <Text style={[styles.symptomCount, { color: theme.primary }]}>{count} Kez</Text>
                     </View>
                     {/* Visual Progress Bar */}
                     <View style={styles.progressBarBg}>
-                      <View style={[styles.progressBarFill, { width: `${percentage}%` }]} />
+                      <View style={[styles.progressBarFill, { width: `${percentage}%`, backgroundColor: theme.primary }]} />
                     </View>
                   </View>
                 );
@@ -357,32 +361,33 @@ export default function StatisticsScreen() {
         </View>
 
         {/* 4. Clinical Correlation analysis card */}
-        <View style={[styles.card, styles.correlationCard]}>
+        <View style={[styles.card, styles.correlationCard, { backgroundColor: theme.bgElement, borderColor: theme.primary + '26' }]}>
           <View style={styles.cardHeader}>
-            <Sparkles size={18} color="#FF2366" />
-            <Text style={[styles.cardTitle, { color: '#FF2366' }]}>Yaşam Alışkanlıkları & Semptom İlişkisi</Text>
+            <Sparkles size={18} color={theme.primary} />
+            <Text style={[styles.cardTitle, { color: theme.primary }]}>Yaşam Alışkanlıkları & Semptom İlişkisi</Text>
           </View>
           
-          <Text style={styles.correlationDesc}>
+          <Text style={[styles.correlationDesc, { color: theme.textSecondary }]}>
             Uygulamaya girdiğiniz sağlık verilerine göre aşağıdaki korelasyonlar gözlemlenmiştir:
           </Text>
 
           <View style={styles.corrGrid}>
             <View style={styles.corrItem}>
-              <Text style={styles.corrIndicator}>100%</Text>
-              <Text style={styles.corrText}>Yüksek Su Tüketimi (2L+), karın ağrısı semptomlarının şiddetini %30 azaltıyor.</Text>
+              <Text style={[styles.corrIndicator, { color: theme.primary, backgroundColor: theme.primary + '1A' }]}>100%</Text>
+              <Text style={[styles.corrText, { color: theme.text }]}>Yüksek Su Tüketimi (2L+), karın ağrısı semptomlarının şiddetini %30 azaltıyor.</Text>
             </View>
             <View style={styles.corrItem}>
-              <Text style={styles.corrIndicator}>85%</Text>
-              <Text style={styles.corrText}>Uyku süresinin 6 saatin altına indiği günleri takip eden dönemde gecikmeler yaşanıyor.</Text>
+              <Text style={[styles.corrIndicator, { color: theme.primary, backgroundColor: theme.primary + '1A' }]}>85%</Text>
+              <Text style={[styles.corrText, { color: theme.text }]}>Uyku süresinin 6 saatin altına indiği günleri takip eden dönemde gecikmeler yaşanıyor.</Text>
             </View>
           </View>
         </View>
 
         {/* Padding for bottom tab bar */}
         <View style={{ height: Math.max(100, insets.bottom + 60) }} />
-      </ScrollView>
-    </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
+    </ExpoLinearGradient>
   );
 }
 
