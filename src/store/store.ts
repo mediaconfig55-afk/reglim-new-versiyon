@@ -12,6 +12,9 @@ interface UserProfile {
   email: string | null;
   displayName: string | null;
   isAnonymous: boolean;
+  birthDate?: string;
+  avgCycleLength?: number;
+  avgPeriodLength?: number;
 }
 
 interface AppState {

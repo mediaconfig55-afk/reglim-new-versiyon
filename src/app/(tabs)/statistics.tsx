@@ -59,7 +59,7 @@ export default function StatisticsScreen() {
 
     try {
       // Calculate prediction inputs
-      const predResults = calculatePredictions(cycles, todayStr);
+      const predResults = calculatePredictions(cycles, todayStr, user?.avgCycleLength, user?.avgPeriodLength);
       const success = await generateDoctorReport({
         userName: user?.displayName || 'Kayıtlı Kullanıcı',
         cycles,

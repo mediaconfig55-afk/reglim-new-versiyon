@@ -49,9 +49,14 @@ export function getDaysBetween(dateStr1: string, dateStr2: string): number {
 /**
  * Smart Period Engine that analyzes past cycles to predict upcoming phases and score accuracy
  */
-export function calculatePredictions(cycles: Cycle[], todayStr: string = getLocalDateString()): PredictionResult {
-  const defaultCycleLength = 28;
-  const defaultPeriodLength = 5;
+export function calculatePredictions(
+  cycles: Cycle[],
+  todayStr: string = getLocalDateString(),
+  profileAvgCycle?: number,
+  profileAvgPeriod?: number
+): PredictionResult {
+  const defaultCycleLength = profileAvgCycle && profileAvgCycle >= 15 && profileAvgCycle <= 50 ? profileAvgCycle : 28;
+  const defaultPeriodLength = profileAvgPeriod && profileAvgPeriod >= 2 && profileAvgPeriod <= 20 ? profileAvgPeriod : 5;
 
   // Filter out invalid/incomplete/anomalous cycles for statistical calculations
   const validCycles = cycles

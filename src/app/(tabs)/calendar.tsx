@@ -5,11 +5,16 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Modal,
+  TextInput,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { getCycles, getDailyLogsRange, DailyLogInput } from '../../database/db';
+import { getCycles, getDailyLogsRange, DailyLogInput, addCycle, updateCycle, deleteCycle } from '../../database/db';
 import { calculatePredictions, PredictionResult } from '../../utils/periodEngine';
+import { useAppStore } from '../../store/store';
 import { ChevronLeft, ChevronRight, Filter, Plus, Calendar as CalendarIcon } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { getLocalDateString } from '../../utils/date';
@@ -21,6 +26,7 @@ const parseUtcDate = (dateStr: string) => {
 export default function CalendarScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAppStore();
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDateStr, setSelectedDateStr] = useState(getLocalDateString());
@@ -31,6 +37,83 @@ export default function CalendarScreen() {
   // Filters
   const [activeFilter, setActiveFilter] = useState<'all' | 'period' | 'symptoms'>('all');
 
+  // History CRUD States
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const [editingCycle, setEditingCycle] = useState<any | null>(null);
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  
+  const [isAddingNewCycle, setIsAddingNewCycle] = useState(false);
+  const [newStartDate, setNewStartDate] = useState('');
+  const [newEndDate, setNewEndDate] = useState('');
+
+  const handleDeleteCycle = async (id: number) => {
+    Alert.alert(
+      'Döngüyü Sil',
+      'Bu döngü kaydını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.',
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Sil',
+          style: 'destructive',
+          onPress: async () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            const ok = await deleteCycle(id);
+            if (ok) {
+              await loadCalendarData();
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSaveCycleEdit = async () => {
+    if (!editingCycle) return;
+    const start = editStartDate.trim();
+    const end = editEndDate.trim() || undefined;
+
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(start) || (end && !dateRegex.test(end))) {
+      Alert.alert('Hata', 'Tarih formatı YYYY-AA-GG (Örn: 2026-06-25) şeklinde olmalıdır.');
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const ok = await updateCycle(editingCycle.id, start, end);
+    if (ok) {
+      setEditingCycle(null);
+      await loadCalendarData();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } else {
+      Alert.alert('Hata', 'Döngü güncellenirken hata oluştu.');
+    }
+  };
+
+  const handleAddNewCycle = async () => {
+    const start = newStartDate.trim();
+    const end = newEndDate.trim() || undefined;
+
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(start) || (end && !dateRegex.test(end))) {
+      Alert.alert('Hata', 'Tarih formatı YYYY-AA-GG (Örn: 2026-06-25) şeklinde olmalıdır.');
+      return;
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const ok = await addCycle(start, end);
+    if (ok) {
+      setIsAddingNewCycle(false);
+      setNewStartDate('');
+      setNewEndDate('');
+      await loadCalendarData();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } else {
+      Alert.alert('Hata', 'Aynı başlangıç tarihine sahip bir döngü zaten mevcut olabilir veya işlem başarısız oldu.');
+    }
+  };
+
   const loadCalendarData = async () => {
     try {
       const dbCycles = await getCycles();
@@ -38,7 +121,7 @@ export default function CalendarScreen() {
 
       // Predictions
       const todayStr = getLocalDateString();
-      const result = calculatePredictions(dbCycles, todayStr);
+      const result = calculatePredictions(dbCycles, todayStr, user?.avgCycleLength, user?.avgPeriodLength);
       setPredictions(result);
 
       // Fetch logs for current month (plus boundaries to be safe)
@@ -215,26 +298,39 @@ export default function CalendarScreen() {
           <Text style={styles.headerSub}>Döngü günlerinizi işaretleyin</Text>
         </View>
 
-        {/* Filter Bar */}
-        <View style={styles.filterBar}>
-          <Filter size={14} color="#888" style={{ marginRight: 6 }} />
+        {/* Filter Bar and Action Button */}
+        <View style={styles.actionHeaderRow}>
+          <View style={styles.filterBar}>
+            <Filter size={14} color="#888" style={{ marginRight: 6 }} />
+            <TouchableOpacity
+              onPress={() => setActiveFilter('all')}
+              style={[styles.filterBtn, activeFilter === 'all' && styles.filterBtnActive]}
+            >
+              <Text style={[styles.filterBtnText, activeFilter === 'all' && styles.filterBtnTextActive]}>Tümü</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setActiveFilter('period')}
+              style={[styles.filterBtn, activeFilter === 'period' && styles.filterBtnActive]}
+            >
+              <Text style={[styles.filterBtnText, activeFilter === 'period' && styles.filterBtnTextActive]}>Regl</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setActiveFilter('symptoms')}
+              style={[styles.filterBtn, activeFilter === 'symptoms' && styles.filterBtnActive]}
+            >
+              <Text style={[styles.filterBtnText, activeFilter === 'symptoms' && styles.filterBtnTextActive]}>Belirtiler</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Manage History Button */}
           <TouchableOpacity
-            onPress={() => setActiveFilter('all')}
-            style={[styles.filterBtn, activeFilter === 'all' && styles.filterBtnActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setHistoryModalVisible(true);
+            }}
+            style={styles.manageHistoryBtn}
           >
-            <Text style={[styles.filterBtnText, activeFilter === 'all' && styles.filterBtnTextActive]}>Tümü</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setActiveFilter('period')}
-            style={[styles.filterBtn, activeFilter === 'period' && styles.filterBtnActive]}
-          >
-            <Text style={[styles.filterBtnText, activeFilter === 'period' && styles.filterBtnTextActive]}>Regl</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setActiveFilter('symptoms')}
-            style={[styles.filterBtn, activeFilter === 'symptoms' && styles.filterBtnActive]}
-          >
-            <Text style={[styles.filterBtnText, activeFilter === 'symptoms' && styles.filterBtnTextActive]}>Belirtiler</Text>
+            <Text style={styles.manageHistoryBtnText}>Geçmişi Yönet</Text>
           </TouchableOpacity>
         </View>
 
@@ -398,6 +494,167 @@ export default function CalendarScreen() {
         {/* Padding for bottom tab bar */}
         <View style={{ height: Math.max(140, insets.bottom + 90) }} />
       </ScrollView>
+
+      {/* Cycle History CRUD Modal */}
+      <Modal visible={historyModalVisible} transparent animationType="slide" onRequestClose={() => setHistoryModalVisible(false)}>
+        <View style={styles.historyModalBg}>
+          <View style={styles.historyModalBox}>
+            <View style={styles.historyModalHeader}>
+              <Text style={styles.historyModalTitle}>Adet Döngüsü Geçmişi</Text>
+              <TouchableOpacity onPress={() => { setHistoryModalVisible(false); setEditingCycle(null); setIsAddingNewCycle(false); }}>
+                <Text style={styles.closeModalText}>Kapat</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Toggle Add Form */}
+            {!isAddingNewCycle && !editingCycle && (
+              <TouchableOpacity
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setIsAddingNewCycle(true);
+                  setNewStartDate(getLocalDateString());
+                  setNewEndDate('');
+                }}
+                style={styles.addCycleToggleBtn}
+              >
+                <Text style={styles.addCycleToggleBtnText}>+ Yeni Döngü Ekle</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Add New Cycle Form */}
+            {isAddingNewCycle && (
+              <View style={[styles.cycleHistoryItem, styles.historyEditBox]}>
+                <Text style={[styles.historyModalTitle, { fontSize: 13, marginBottom: 8 }]}>Yeni Döngü Ekle</Text>
+                
+                <View style={styles.historyInputRow}>
+                  <View style={styles.historyInputContainer}>
+                    <Text style={styles.historyInputLabel}>Başlangıç (YYYY-AA-GG)</Text>
+                    <TextInput
+                      style={styles.historyInput}
+                      placeholder="YYYY-AA-GG"
+                      placeholderTextColor="#666"
+                      value={newStartDate}
+                      onChangeText={setNewStartDate}
+                    />
+                  </View>
+                  <View style={styles.historyInputContainer}>
+                    <Text style={styles.historyInputLabel}>Bitiş (YYYY-AA-GG - Opsiyonel)</Text>
+                    <TextInput
+                      style={styles.historyInput}
+                      placeholder="YYYY-AA-GG"
+                      placeholderTextColor="#666"
+                      value={newEndDate}
+                      onChangeText={setNewEndDate}
+                    />
+                  </View>
+                </View>
+
+                <View style={[styles.cycleHistoryActions, { marginTop: 8 }]}>
+                  <TouchableOpacity
+                    style={[styles.cycleHistoryBtn, { backgroundColor: '#333' }]}
+                    onPress={() => setIsAddingNewCycle(false)}
+                  >
+                    <Text style={[styles.cycleHistoryBtnText, { color: '#fff' }]}>İptal</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.cycleHistoryBtn, { backgroundColor: '#06D6A0' }]}
+                    onPress={handleAddNewCycle}
+                  >
+                    <Text style={[styles.cycleHistoryBtnText, { color: '#fff' }]}>Ekle</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Edit Cycle Form */}
+            {editingCycle && (
+              <View style={[styles.cycleHistoryItem, styles.historyEditBox]}>
+                <Text style={[styles.historyModalTitle, { fontSize: 13, marginBottom: 8 }]}>Döngüyü Düzenle</Text>
+                
+                <View style={styles.historyInputRow}>
+                  <View style={styles.historyInputContainer}>
+                    <Text style={styles.historyInputLabel}>Başlangıç (YYYY-AA-GG)</Text>
+                    <TextInput
+                      style={styles.historyInput}
+                      placeholder="YYYY-AA-GG"
+                      placeholderTextColor="#666"
+                      value={editStartDate}
+                      onChangeText={setEditStartDate}
+                    />
+                  </View>
+                  <View style={styles.historyInputContainer}>
+                    <Text style={styles.historyInputLabel}>Bitiş (YYYY-AA-GG - Opsiyonel)</Text>
+                    <TextInput
+                      style={styles.historyInput}
+                      placeholder="YYYY-AA-GG"
+                      placeholderTextColor="#666"
+                      value={editEndDate}
+                      onChangeText={setEditEndDate}
+                    />
+                  </View>
+                </View>
+
+                <View style={[styles.cycleHistoryActions, { marginTop: 8 }]}>
+                  <TouchableOpacity
+                    style={[styles.cycleHistoryBtn, { backgroundColor: '#333' }]}
+                    onPress={() => setEditingCycle(null)}
+                  >
+                    <Text style={[styles.cycleHistoryBtnText, { color: '#fff' }]}>İptal</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.cycleHistoryBtn, { backgroundColor: '#FF2366' }]}
+                    onPress={handleSaveCycleEdit}
+                  >
+                    <Text style={[styles.cycleHistoryBtnText, { color: '#fff' }]}>Kaydet</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* History List */}
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+              {cycles.length === 0 ? (
+                <Text style={[styles.noLogsText, { marginVertical: 40 }]}>Kayıtlı döngü verisi bulunamadı.</Text>
+              ) : (
+                cycles.map((c, idx) => (
+                  <View key={c.id || idx} style={styles.cycleHistoryItem}>
+                    <Text style={styles.cycleHistoryDates}>
+                      📅 {c.start_date} {c.end_date ? `➔ ${c.end_date}` : '➔ (Devam Ediyor)'}
+                    </Text>
+                    <View style={styles.cycleHistoryMetaRow}>
+                      <Text style={styles.cycleHistoryMetaText}>
+                        🩸 Adet: {c.period_length ? `${c.period_length} Gün` : '-'}
+                      </Text>
+                      <Text style={styles.cycleHistoryMetaText}>
+                        🔄 Döngü: {c.cycle_length ? `${c.cycle_length} Gün` : '-'}
+                      </Text>
+                    </View>
+                    <View style={styles.cycleHistoryActions}>
+                      <TouchableOpacity
+                        style={[styles.cycleHistoryBtn, { backgroundColor: '#222' }]}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setEditingCycle(c);
+                          setEditStartDate(c.start_date);
+                          setEditEndDate(c.end_date || '');
+                        }}
+                      >
+                        <Text style={[styles.cycleHistoryBtnText, { color: '#aaa' }]}>Düzenle</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.cycleHistoryBtn, { backgroundColor: 'rgba(255, 77, 109, 0.1)' }]}
+                        onPress={() => handleDeleteCycle(c.id)}
+                      >
+                        <Text style={[styles.cycleHistoryBtnText, { color: '#FF4D6D' }]}>Sil</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -695,5 +952,133 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontWeight: 'bold',
+  },
+  actionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  manageHistoryBtn: {
+    backgroundColor: 'rgba(255, 35, 102, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 35, 102, 0.15)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  manageHistoryBtnText: {
+    color: '#FF2366',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  historyModalBg: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  historyModalBox: {
+    backgroundColor: '#18181c',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 24,
+    width: '100%',
+    maxHeight: '80%',
+    padding: 20,
+  },
+  historyModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  historyModalTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  closeModalText: {
+    color: '#aaa',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  addCycleToggleBtn: {
+    backgroundColor: '#FF2366',
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  addCycleToggleBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  cycleHistoryItem: {
+    backgroundColor: '#1e1e24',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.02)',
+  },
+  cycleHistoryDates: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  cycleHistoryMetaRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 10,
+  },
+  cycleHistoryMetaText: {
+    fontSize: 11,
+    color: '#888',
+  },
+  cycleHistoryActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  cycleHistoryBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  cycleHistoryBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  historyEditBox: {
+    backgroundColor: '#131316',
+    padding: 12,
+    borderRadius: 12,
+    gap: 10,
+  },
+  historyInputRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  historyInputContainer: {
+    flex: 1,
+  },
+  historyInputLabel: {
+    fontSize: 10,
+    color: '#888',
+    marginBottom: 4,
+  },
+  historyInput: {
+    backgroundColor: '#1e1e24',
+    borderWidth: 1,
+    borderColor: '#2d2d35',
+    borderRadius: 8,
+    height: 38,
+    color: '#fff',
+    paddingHorizontal: 10,
+    fontSize: 12,
   },
 });

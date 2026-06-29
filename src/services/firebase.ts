@@ -13,10 +13,11 @@ import {
   // @ts-ignore
   getReactNativePersistence
 } from 'firebase/auth';
-import { getFirestore, doc, setDoc, collection, writeBatch, serverTimestamp, getDocs } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, collection, writeBatch, serverTimestamp, getDocs, getDoc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { getUnsyncedData, markCycleSynced, markLogSynced, restoreDataInLocalDB } from '../database/db';
+import { useAppStore } from '../store/store';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "AIzaSyA76G_AnCDu1cphfERq7zCgcOKTCO33UtI",
@@ -50,12 +51,55 @@ const db = getFirestore(app);
  * Syncs unsynced local SQLite cycles and daily logs data to Firebase Firestore
  * for the authenticated user.
  */
+export async function syncUserProfile(userId: string, profile: { displayName: string | null; birthDate?: string; avgCycleLength?: number; avgPeriodLength?: number }): Promise<boolean> {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await setDoc(userRef, {
+      displayName: profile.displayName || null,
+      birthDate: profile.birthDate || null,
+      avgCycleLength: profile.avgCycleLength || null,
+      avgPeriodLength: profile.avgPeriodLength || null,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    console.log('User profile synced to Firebase.');
+    return true;
+  } catch (error) {
+    console.error('Failed to sync user profile to Firebase:', error);
+    return false;
+  }
+}
+
+export async function restoreUserProfile(userId: string): Promise<any | null> {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      return userSnap.data();
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to restore user profile from Firebase:', error);
+    return null;
+  }
+}
+
 export async function syncCyclesAndLogsToCloud(userId: string): Promise<boolean> {
   try {
+    // Sync user profile first if one exists in store
+    const userState = useAppStore.getState().user;
+    if (userState && userState.uid === userId) {
+      await syncUserProfile(userId, {
+        displayName: userState.displayName,
+        birthDate: userState.birthDate,
+        avgCycleLength: userState.avgCycleLength,
+        avgPeriodLength: userState.avgPeriodLength,
+      });
+    }
+
     const { cycles, logs } = await getUnsyncedData();
     
     if (cycles.length === 0 && logs.length === 0) {
-      console.log('No unsynced data to upload.');
+      console.log('User profile synced. No unsynced logs or cycles to upload.');
       return true;
     }
 

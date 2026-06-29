@@ -27,7 +27,7 @@ import {
   signInAnonymously, 
   updateProfile 
 } from 'firebase/auth';
-import { auth, restoreCyclesAndLogsFromCloud } from '../../services/firebase';
+import { auth, restoreCyclesAndLogsFromCloud, restoreUserProfile } from '../../services/firebase';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -91,12 +91,22 @@ export default function LoginScreen() {
         isAnonymous: false,
       };
 
+      let cloudProfile = null;
       if (isLogin) {
         await restoreCyclesAndLogsFromCloud(fbUser.uid);
+        cloudProfile = await restoreUserProfile(fbUser.uid);
       }
 
-      await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
-      setUser(sessionUser);
+      const mergedSessionUser = {
+        ...sessionUser,
+        displayName: cloudProfile?.displayName || sessionUser.displayName,
+        birthDate: cloudProfile?.birthDate || undefined,
+        avgCycleLength: cloudProfile?.avgCycleLength || undefined,
+        avgPeriodLength: cloudProfile?.avgPeriodLength || undefined,
+      };
+
+      await AsyncStorage.setItem('user_session', JSON.stringify(mergedSessionUser));
+      setUser(mergedSessionUser);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace('/(tabs)');
@@ -176,10 +186,20 @@ export default function LoginScreen() {
       };
 
       await restoreCyclesAndLogsFromCloud(fbUser.uid);
-      await AsyncStorage.setItem('user_session', JSON.stringify(sessionUser));
+      const cloudProfile = await restoreUserProfile(fbUser.uid);
+
+      const mergedSessionUser = {
+        ...sessionUser,
+        displayName: cloudProfile?.displayName || fbUser.displayName || sessionUser.displayName,
+        birthDate: cloudProfile?.birthDate || undefined,
+        avgCycleLength: cloudProfile?.avgCycleLength || undefined,
+        avgPeriodLength: cloudProfile?.avgPeriodLength || undefined,
+      };
+
+      await AsyncStorage.setItem('user_session', JSON.stringify(mergedSessionUser));
       // Save user session in pending state and show modal first (do NOT call setUser yet)
-      setPendingSessionUser(sessionUser);
-      setSuccessUserName(sessionUser.displayName);
+      setPendingSessionUser(mergedSessionUser);
+      setSuccessUserName(mergedSessionUser.displayName);
       setShowSuccessModal(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {

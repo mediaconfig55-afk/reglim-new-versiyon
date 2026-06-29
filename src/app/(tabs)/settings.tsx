@@ -18,9 +18,10 @@ import { getUnsyncedData, markCycleSynced, markLogSynced, clearDatabase } from '
 import { savePIN, clearPIN } from '../../utils/security';
 import { Shield, Sparkles, CloudRain, ToggleLeft, UserCheck, Key, HelpCircle, UserX, Settings, Bell } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { auth, syncCyclesAndLogsToCloud, restoreCyclesAndLogsFromCloud } from '../../services/firebase';
+import { auth, syncCyclesAndLogsToCloud, restoreCyclesAndLogsFromCloud, syncUserProfile } from '../../services/firebase';
 import { signOut } from 'firebase/auth';
 import CryptoJS from 'crypto-js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   hasNotificationPermissions,
   requestNotificationPermissions,
@@ -35,6 +36,7 @@ export default function SettingsScreen() {
   
   const {
     user,
+    setUser,
     logout,
     isPregnancyMode,
     setPregnancyMode,
@@ -78,6 +80,106 @@ export default function SettingsScreen() {
     type: 'info',
     onConfirm: () => {},
   });
+
+  // Profile Editor states
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editBirthDate, setEditBirthDate] = useState('');
+  const [editAvgCycle, setEditAvgCycle] = useState('');
+  const [editAvgPeriod, setEditAvgPeriod] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+
+  const handleSaveProfile = async () => {
+    if (!editName.trim()) {
+      setAlertConfig({
+        visible: true,
+        title: 'Hata',
+        message: 'Lütfen geçerli bir isim girin.',
+        type: 'error',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
+      return;
+    }
+
+    const cycleVal = parseInt(editAvgCycle.trim(), 10);
+    const periodVal = parseInt(editAvgPeriod.trim(), 10);
+
+    if (editAvgCycle.trim() && (isNaN(cycleVal) || cycleVal < 15 || cycleVal > 50)) {
+      setAlertConfig({
+        visible: true,
+        title: 'Geçersiz Değer',
+        message: 'Ortalama döngü süresi 15 ile 50 gün arasında olmalıdır.',
+        type: 'error',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
+      return;
+    }
+
+    if (editAvgPeriod.trim() && (isNaN(periodVal) || periodVal < 2 || periodVal > 20)) {
+      setAlertConfig({
+        visible: true,
+        title: 'Geçersiz Değer',
+        message: 'Ortalama adet süresi 2 ile 20 gün arasında olmalıdır.',
+        type: 'error',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
+      return;
+    }
+
+    // Verify birthdate format YYYY-MM-DD if entered
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (editBirthDate.trim() && !dateRegex.test(editBirthDate.trim())) {
+      setAlertConfig({
+        visible: true,
+        title: 'Geçersiz Doğum Tarihi',
+        message: 'Doğum tarihi formatı YYYY-AA-GG (Örn: 1995-08-25) şeklinde olmalıdır.',
+        type: 'error',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
+      return;
+    }
+
+    setProfileSaving(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const updatedUser = {
+      ...user!,
+      displayName: editName.trim(),
+      birthDate: editBirthDate.trim() || undefined,
+      avgCycleLength: isNaN(cycleVal) ? undefined : cycleVal,
+      avgPeriodLength: isNaN(periodVal) ? undefined : periodVal,
+    };
+
+    try {
+      // Save locally
+      await AsyncStorage.setItem('user_session', JSON.stringify(updatedUser));
+      setUser(updatedUser);
+
+      // Save to Firebase Cloud
+      if (user && !user.isAnonymous) {
+        await syncUserProfile(user.uid, {
+          displayName: updatedUser.displayName,
+          birthDate: updatedUser.birthDate,
+          avgCycleLength: updatedUser.avgCycleLength,
+          avgPeriodLength: updatedUser.avgPeriodLength,
+        });
+      }
+
+      setProfileModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAlertConfig({
+        visible: true,
+        title: 'Profil Güncellendi 🎉',
+        message: 'Profil ve döngü ayarlarınız başarıyla kaydedildi.',
+        type: 'success',
+        onConfirm: () => setAlertConfig(prev => ({ ...prev, visible: false }))
+      });
+    } catch (e) {
+      console.error('Failed to save profile:', e);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
@@ -377,6 +479,37 @@ export default function SettingsScreen() {
               </View>
             )}
           </View>
+
+          {/* Profile details */}
+          <View style={styles.profileDetailsBlock}>
+            <View style={styles.profileDetailRow}>
+              <Text style={styles.profileDetailLabel}>Doğum Tarihi:</Text>
+              <Text style={styles.profileDetailVal}>{user?.birthDate || 'Belirtilmedi'}</Text>
+            </View>
+            <View style={styles.profileDetailRow}>
+              <Text style={styles.profileDetailLabel}>Ort. Döngü Süresi:</Text>
+              <Text style={styles.profileDetailVal}>{user?.avgCycleLength ? `${user.avgCycleLength} Gün` : '28 Gün (Varsayılan)'}</Text>
+            </View>
+            <View style={styles.profileDetailRow}>
+              <Text style={styles.profileDetailLabel}>Ort. Adet Süresi:</Text>
+              <Text style={styles.profileDetailVal}>{user?.avgPeriodLength ? `${user.avgPeriodLength} Gün` : '5 Gün (Varsayılan)'}</Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                // Pre-fill editor fields
+                setEditName(user?.displayName || '');
+                setEditBirthDate(user?.birthDate || '');
+                setEditAvgCycle(user?.avgCycleLength ? String(user.avgCycleLength) : '');
+                setEditAvgPeriod(user?.avgPeriodLength ? String(user.avgPeriodLength) : '');
+                setProfileModalVisible(true);
+              }}
+              style={styles.editProfileBtn}
+            >
+              <Text style={styles.editProfileBtnText}>Profil ve Döngü Ayarlarını Düzenle</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* 2. App Mode Configuration */}
@@ -586,6 +719,83 @@ export default function SettingsScreen() {
         {/* Padding for bottom tab bar */}
         <View style={{ height: Math.max(120, insets.bottom + 80) }} />
       </ScrollView>
+
+      {/* Profile Editor Modal */}
+      <Modal visible={profileModalVisible} transparent animationType="fade" onRequestClose={() => setProfileModalVisible(false)}>
+        <View style={styles.pinModalBg}>
+          <View style={styles.pinModalBox}>
+            <Text style={styles.pinModalTitle}>Profili Düzenle</Text>
+            <Text style={styles.pinModalSub}>Kişisel ve döngü tahmin ayarlarınızı özelleştirin.</Text>
+            
+            <View style={styles.pinModalInputGroup}>
+              <Text style={styles.pinModalInputLabel}>Adınız Soyadınız</Text>
+              <TextInput
+                style={styles.pinModalInput}
+                placeholder="Adınız Soyadınız"
+                placeholderTextColor="#666"
+                value={editName}
+                onChangeText={setEditName}
+              />
+            </View>
+
+            <View style={styles.pinModalInputGroup}>
+              <Text style={styles.pinModalInputLabel}>Doğum Tarihi (YYYY-AA-GG)</Text>
+              <TextInput
+                style={styles.pinModalInput}
+                placeholder="Örn: 1995-08-25"
+                placeholderTextColor="#666"
+                value={editBirthDate}
+                onChangeText={setEditBirthDate}
+              />
+            </View>
+
+            <View style={styles.pinModalInputGroup}>
+              <Text style={styles.pinModalInputLabel}>Ortalama Döngü Süresi (Gün)</Text>
+              <TextInput
+                style={styles.pinModalInput}
+                keyboardType="numeric"
+                placeholder="28"
+                placeholderTextColor="#666"
+                value={editAvgCycle}
+                onChangeText={setEditAvgCycle}
+              />
+            </View>
+
+            <View style={styles.pinModalInputGroup}>
+              <Text style={styles.pinModalInputLabel}>Ortalama Adet Süresi (Gün)</Text>
+              <TextInput
+                style={styles.pinModalInput}
+                keyboardType="numeric"
+                placeholder="5"
+                placeholderTextColor="#666"
+                value={editAvgPeriod}
+                onChangeText={setEditAvgPeriod}
+              />
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+              <TouchableOpacity
+                style={[styles.pinModalBtn, { backgroundColor: '#333' }]}
+                onPress={() => setProfileModalVisible(false)}
+                disabled={profileSaving}
+              >
+                <Text style={styles.pinModalBtnText}>İptal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pinModalBtn, { backgroundColor: '#FF2366' }]}
+                onPress={handleSaveProfile}
+                disabled={profileSaving}
+              >
+                {profileSaving ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.pinModalBtnText}>Kaydet</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* PIN Setup Modal */}
       <Modal visible={pinModalVisible} transparent animationType="fade">
@@ -807,6 +1017,41 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     marginTop: 2,
+  },
+  profileDetailsBlock: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  profileDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  profileDetailLabel: {
+    fontSize: 12,
+    color: '#888',
+    fontWeight: '500',
+  },
+  profileDetailVal: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  editProfileBtn: {
+    marginTop: 12,
+    backgroundColor: 'rgba(255, 35, 102, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 35, 102, 0.15)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  editProfileBtnText: {
+    color: '#FF2366',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   premiumBadge: {
     flexDirection: 'row',

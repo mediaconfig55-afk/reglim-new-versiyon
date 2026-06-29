@@ -104,7 +104,7 @@ export default function DashboardScreen() {
       setActiveCycle(active);
 
       // Predictions
-      const results = calculatePredictions(dbCycles, todayStr);
+      const results = calculatePredictions(dbCycles, todayStr, user?.avgCycleLength, user?.avgPeriodLength);
       setPredictions(results);
 
       // Schedule or cancel cycle alerts dynamically
